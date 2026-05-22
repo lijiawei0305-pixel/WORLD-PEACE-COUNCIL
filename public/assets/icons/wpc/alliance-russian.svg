@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="Russian Federation icon">
+  <defs>
+    <linearGradient id="g" x1="24" y1="18" x2="104" y2="112">
+      <stop offset="0" stop-color="#ffd0a8"/>
+      <stop offset="0.48" stop-color="#ff7a3d"/>
+      <stop offset="1" stop-color="#7b2435"/>
+    </linearGradient>
+    <filter id="glow" x="-25%" y="-25%" width="150%" height="150%">
+      <feGaussianBlur stdDeviation="3" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <circle cx="64" cy="64" r="56" fill="#07111f" stroke="#ff7a3d" stroke-width="3"/>
+  <path d="M30 48l34-30 34 30v45H30z" fill="url(#g)" filter="url(#glow)"/>
+  <path d="M42 52h44M42 70h44M52 93V52M76 93V52" fill="none" stroke="#fff3e8" stroke-width="4" stroke-linecap="round"/>
+  <path d="M64 30l5 10 11 2-8 8 2 11-10-5-10 5 2-11-8-8 11-2z" fill="#07111f" opacity="0.86"/>
+</svg>

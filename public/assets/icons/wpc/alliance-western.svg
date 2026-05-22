@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="North American Western Alliance icon">
+  <defs>
+    <linearGradient id="g" x1="20" y1="16" x2="106" y2="112">
+      <stop offset="0" stop-color="#8ed7ff"/>
+      <stop offset="0.55" stop-color="#4aa8ff"/>
+      <stop offset="1" stop-color="#193e8a"/>
+    </linearGradient>
+    <filter id="glow" x="-25%" y="-25%" width="150%" height="150%">
+      <feGaussianBlur stdDeviation="3" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <circle cx="64" cy="64" r="56" fill="#07111f" stroke="#4aa8ff" stroke-width="3"/>
+  <path d="M64 17l39 14v28c0 25-16 43-39 53-23-10-39-28-39-53V31z" fill="url(#g)" opacity="0.95" filter="url(#glow)"/>
+  <path d="M35 58h58M64 29v70M45 39c10 8 28 8 38 0M45 88c10-8 28-8 38 0" fill="none" stroke="#e8fbff" stroke-width="3" stroke-linecap="round" opacity="0.9"/>
+  <path d="M64 39l6 12 13 2-10 9 3 13-12-7-12 7 3-13-10-9 13-2z" fill="#ffffff"/>
+</svg>

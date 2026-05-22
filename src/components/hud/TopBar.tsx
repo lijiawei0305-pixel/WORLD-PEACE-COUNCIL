@@ -1,59 +1,110 @@
-const phases = ['外交阶段', '行动阶段', '结算阶段'];
+import { councilStages, headerStatus } from '../../data/worldPeaceCouncil';
+import type { GameStatus, WorldState } from '../../contracts/game';
+import StageStepper from './StageStepper';
 
-export default function TopBar() {
+type TopBarProps = {
+  activeStageIndex: number;
+  round: number;
+  maxRounds: number;
+  date: string;
+  gameStatus?: GameStatus;
+  isBusy?: boolean;
+  onNewGame?: () => void;
+  worldState?: WorldState;
+};
+
+function getStatusChips(worldState?: WorldState) {
+  if (!worldState) {
+    return [
+      { label: '全球紧张度', value: headerStatus.tension, tone: 'red' },
+      { label: '和平协议', value: headerStatus.peace, tone: 'blue' },
+      { label: 'AI 风险', value: headerStatus.aiRisk, tone: 'yellow' },
+    ];
+  }
+
+  return [
+    { label: '全球紧张度', value: `${worldState.globalTension} / 100`, tone: 'red' },
+    { label: '和平协议', value: `${worldState.peaceAgreement}%`, tone: 'blue' },
+    { label: 'AI 风险', value: `${worldState.aiRisk} / 100`, tone: 'yellow' },
+  ];
+}
+
+const gameStatusLabel: Record<GameStatus, string> = {
+  ACTIVE: '在线',
+  WON: '胜利',
+  FAILED: '失败',
+  COLD_PEACE: '冷和平',
+  ABANDONED: '已放弃',
+};
+
+export default function TopBar({
+  activeStageIndex,
+  round,
+  maxRounds,
+  date,
+  gameStatus = 'ACTIVE',
+  isBusy = false,
+  onNewGame,
+  worldState,
+}: TopBarProps) {
+  const statusChips = getStatusChips(worldState);
+
   return (
-    <header className="top-bar">
-      <div className="brand-block">
-        <div className="brand-mark" aria-hidden="true">
-          <svg viewBox="0 0 42 42" role="img">
-            <circle cx="21" cy="21" r="16" />
-            <path d="M5 21h32M21 5v32M10 11c5 4 17 4 22 0M10 31c5-4 17-4 22 0" />
-            <path d="M21 5c-8 8-8 24 0 32M21 5c8 8 8 24 0 32" />
-          </svg>
+    <header className="wpc-top-bar">
+      <div className="wpc-brand">
+        <div className="wpc-brand__mark" aria-hidden="true">
+          <img src="/assets/icons/wpc/world-peace-council.svg" alt="" />
         </div>
-        <div>
-          <h1>全球外交风云</h1>
-          <span className="brand-subtitle">WORLD AI DIPLOMACY</span>
+        <div className="wpc-brand__copy">
+          <h1>世界和平理事会</h1>
+          <span>WORLD PEACE COUNCIL</span>
         </div>
       </div>
 
-      <div className="round-meta">
-        <strong>回合 23</strong>
-        <span>2025年5月12日</span>
+      <div className="wpc-round-center">
+        <div className="wpc-round-meta">
+          <strong>
+            回合 {round} / {maxRounds}
+          </strong>
+          <span>{date}</span>
+        </div>
+        <StageStepper stages={councilStages} activeIndex={activeStageIndex} />
       </div>
 
-      <nav className="phase-track" aria-label="Game phases">
-        {phases.map((phase, index) => (
-          <div key={phase} className={`phase-step ${index === 0 ? 'phase-step--active' : ''}`}>
-            <i />
-            <span>{phase}</span>
+      <div className="wpc-status-cluster" aria-label="关键状态">
+        {statusChips.map((chip) => (
+          <div key={chip.label} className={`wpc-status-chip wpc-status-chip--${chip.tone}`}>
+            <span>{chip.label}</span>
+            <strong>{chip.value}</strong>
           </div>
         ))}
-      </nav>
+      </div>
 
-      <div className="top-actions">
-        <div className="countdown" aria-label="Stage remaining time">
-          <span>阶段剩余时间</span>
-          <strong>23:58:47</strong>
-        </div>
-        <button type="button" className="top-icon-button" aria-label="帮助">
-          <span>?</span>
-          帮助
+      <div className="wpc-top-actions">
+        <button type="button" className="wpc-icon-button" aria-label="帮助" title="帮助">
+          ?
         </button>
-        <button type="button" className="top-icon-button" aria-label="设置">
-          <span>◎</span>
-          设置
+        <button type="button" className="wpc-icon-button" aria-label="设置" title="设置">
+          ⚙
         </button>
-        <button type="button" className="top-icon-button notification-button" aria-label="通知">
-          <span>◉</span>
-          通知
-          <i>3</i>
+        <button type="button" className="wpc-icon-button wpc-icon-button--notify" aria-label="通知" title="通知">
+          !
+          <i />
         </button>
-        <button type="button" className="strategist-button" aria-label="战略家在线">
-          <span className="strategist-avatar">策</span>
-          <span className="strategist-copy">
-            <strong>战略家</strong>
-            <small>在线</small>
+        <button
+          type="button"
+          className="wpc-operator"
+          aria-label="创建新游戏"
+          disabled={isBusy}
+          onClick={onNewGame}
+          title="创建新游戏"
+        >
+          <span className="wpc-operator__avatar">序</span>
+          <span>
+            <strong>首席秩序架构师</strong>
+            <small>
+              <i /> {isBusy ? '同步中' : gameStatusLabel[gameStatus]}
+            </small>
           </span>
         </button>
       </div>

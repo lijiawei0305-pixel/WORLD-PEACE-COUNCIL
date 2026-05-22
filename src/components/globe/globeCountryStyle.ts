@@ -1,4 +1,4 @@
-import { AFRICA_ISO_A3_SET, demoCountryState } from '../../data/demoCountryState';
+import { getAllianceForCountryCode } from '../../data/worldPeaceCouncil';
 import { getFactionConfig, neutralFaction, type FactionConfig, type FactionDisplayId } from '../../data/factions';
 
 export type CountryFeature = {
@@ -16,14 +16,10 @@ export function getIsoA3(country: CountryFeature): string {
 export function getCountryFaction(country: CountryFeature): FactionConfig {
   const isoA3 = getIsoA3(country);
   const continent = country.properties?.CONTINENT;
-  const configuredFaction = demoCountryState[isoA3];
+  const alliance = getAllianceForCountryCode(isoA3, continent);
 
-  if (configuredFaction) {
-    return getFactionConfig(configuredFaction);
-  }
-
-  if (AFRICA_ISO_A3_SET.has(isoA3) || continent === 'Africa') {
-    return getFactionConfig('african_union');
+  if (alliance) {
+    return getFactionConfig(alliance.id);
   }
 
   return getFactionConfig('neutral' as FactionDisplayId);
@@ -68,18 +64,20 @@ export function getPolygonAltitude(country: CountryFeature, selectedCountry: str
 export function createCountryLabel(country: CountryFeature): string {
   const isoA3 = getIsoA3(country);
   const faction = getCountryFaction(country);
+  const alliance = getAllianceForCountryCode(isoA3, country.properties?.CONTINENT);
   const props = country.properties ?? {};
   const name = String(props.NAME ?? props.ADMIN ?? props.NAME_LONG ?? isoA3);
   const influence = faction.id === neutralFaction.id ? 42 : 78;
   const stability = faction.id === 'russian_alliance' || faction.id === 'zhonghua_alliance' ? 58 : 64;
+  const allianceName = alliance?.name ?? neutralFaction.name;
 
   return `
     <div class="country-tooltip">
       <div class="country-tooltip__name">${name}</div>
       <div>ISO: ${isoA3}</div>
-      <div>Faction: ${faction.name}</div>
-      <div>Influence: ${influence}</div>
-      <div>Stability: ${stability}%</div>
+      <div>所属联盟: <span class="country-tooltip__badge" style="--tooltip-alliance-color:${faction.color}">${allianceName}</span></div>
+      <div>影响力: ${influence}</div>
+      <div>稳定度: ${stability}%</div>
     </div>
   `;
 }

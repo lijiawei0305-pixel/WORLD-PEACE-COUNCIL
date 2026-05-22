@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="African Unity Alliance icon">
+  <defs>
+    <linearGradient id="g" x1="20" y1="18" x2="108" y2="112">
+      <stop offset="0" stop-color="#ffd28c"/>
+      <stop offset="0.52" stop-color="#ff9f43"/>
+      <stop offset="1" stop-color="#42e27f"/>
+    </linearGradient>
+    <filter id="glow" x="-25%" y="-25%" width="150%" height="150%">
+      <feGaussianBlur stdDeviation="3" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <circle cx="64" cy="64" r="56" fill="#07111f" stroke="#ff9f43" stroke-width="3"/>
+  <path d="M64 16c22 13 38 32 38 53 0 24-18 41-38 43-20-2-38-19-38-43 0-21 16-40 38-53z" fill="url(#g)" filter="url(#glow)"/>
+  <path d="M64 31v67M44 91h40M64 58c-14 0-24-8-28-20 16-1 26 5 28 20zM64 58c14 0 24-8 28-20-16-1-26 5-28 20z" fill="none" stroke="#07111f" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" opacity="0.82"/>
+  <path d="M40 72c14 9 34 9 48 0" fill="none" stroke="#e8fbff" stroke-width="4" stroke-linecap="round"/>
+</svg>

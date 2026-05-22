@@ -62,6 +62,9 @@ declare module 'globe.gl' {
     pointAltitude<T>(value: Accessor<T, number>): GlobeInstance;
     pointRadius<T>(value: Accessor<T, number>): GlobeInstance;
     pointColor<T>(value: Accessor<T, string>): GlobeInstance;
+    pointLabel<T>(value: Accessor<T, string>): GlobeInstance;
+    onPointClick<T>(callback: (point: T) => void): GlobeInstance;
+    onPointHover<T>(callback: (point: T | null) => void): GlobeInstance;
     ringsData<T>(data: T[]): GlobeInstance;
     ringLat<T>(value: Accessor<T, number>): GlobeInstance;
     ringLng<T>(value: Accessor<T, number>): GlobeInstance;

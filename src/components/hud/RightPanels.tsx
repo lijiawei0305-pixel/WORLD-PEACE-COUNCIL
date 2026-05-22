@@ -1,270 +1,257 @@
-import { type ReactNode, useMemo, useState } from 'react';
+import type { CSSProperties, ReactElement } from 'react';
+import type { AIAdjudication, RoundSettlement } from '../../contracts/game';
+import {
+  aiReactions,
+  allianceProfiles,
+  councilStages,
+  diplomaticActions,
+  focusTopics,
+  keyRisks,
+  nextTurnWarnings,
+  settlementResults,
+  turnEvents,
+  type AllianceProfile,
+  type CouncilStageId,
+  type TurnEvent,
+} from '../../data/worldPeaceCouncil';
+import EventList from './EventList';
+import RightPanelSection from './RightPanelSection';
 
-type EventTone = 'gold' | 'orange' | 'green' | 'blue' | 'purple';
-type AllianceTone = 'western' | 'china' | 'russia' | 'middleEast' | 'africa';
-
-type AllianceMessage = {
-  id: string;
-  name: string;
-  subtitle: string;
-  time: string;
-  tone: AllianceTone;
-  emblem: string;
-  unread?: boolean;
-  messages: ChatMessage[];
+type RightPanelsProps = {
+  activeStageIndex: number;
+  adjudication?: AIAdjudication | null;
+  alliances?: AllianceProfile[];
+  events?: TurnEvent[];
+  priorityIssue?: string;
+  settlement?: RoundSettlement | null;
+  submittedProposal?: string;
 };
 
-type ChatMessage = {
-  id: string;
-  from: 'alliance' | 'self';
-  time: string;
-  text: string;
+const backendAllianceIdToDisplayId: Record<string, AllianceProfile['id']> = {
+  north_west: 'north_american_western_alliance',
+  china: 'zhonghua_alliance',
+  russia: 'russian_alliance',
+  middle_east: 'middle_east_islamic_alliance',
+  africa: 'african_union',
+  latin_america: 'latin_american_south_american_alliance',
+  southeast_asia: 'southeast_asia_alliance',
 };
 
-const events: { label: string; time: string; tone: EventTone }[] = [
-  { label: '北约宣布新军事演习计划', time: '2分钟前', tone: 'gold' },
-  { label: '中东地区局势紧张升级', time: '15分钟前', tone: 'orange' },
-  { label: '全球经济峰会即将召开', time: '1小时前', tone: 'green' },
-  { label: '新科技突破：量子计算', time: '2小时前', tone: 'blue' },
-  { label: '联合国投票通过新决议', time: '3小时前', tone: 'purple' },
-];
+function findAlliance(alliances: AllianceProfile[], value: string): AllianceProfile | undefined {
+  const mappedId = backendAllianceIdToDisplayId[value];
 
-const allianceMessages: AllianceMessage[] = [
-  {
-    id: 'western',
-    name: '北美·西方联盟',
-    subtitle: '我们建议就北极治理议题展开磋商...',
-    time: '14:26',
-    tone: 'western',
-    emblem: '✺',
-    unread: true,
-    messages: [
-      { id: 'w1', from: 'alliance', time: '14:16', text: '我们建议就北极治理议题展开磋商，避免军事误判。' },
-      { id: 'w2', from: 'self', time: '14:18', text: '我们同意建立沟通渠道，并希望优先讨论航道安全。' },
-      { id: 'w3', from: 'alliance', time: '14:24', text: '收到。代表团将在一小时内提交议程草案。' },
-    ],
-  },
-  {
-    id: 'china',
-    name: '中华联盟',
-    subtitle: '收到。我们将审视贵方提案。',
-    time: '14:18',
-    tone: 'china',
-    emblem: '米',
-    unread: true,
-    messages: [
-      { id: 'c1', from: 'alliance', time: '14:18', text: '收到。我们将审视贵方提案。' },
-      { id: 'c2', from: 'self', time: '14:20', text: '感谢配合，我们期待共同推进合作框架的进一步落实。' },
-      { id: 'c3', from: 'alliance', time: '14:23', text: '建议下周召开线上磋商会议，讨论具体执行细节。' },
-      { id: 'c4', from: 'self', time: '14:25', text: '同意，我们将准备相关资料，届时与会。' },
-      { id: 'c5', from: 'alliance', time: '14:27', text: '好的，会议时间另行确认。' },
-    ],
-  },
-  {
-    id: 'russia',
-    name: '俄罗斯联盟',
-    subtitle: '边境演习不针对各方，请勿误判。',
-    time: '14:07',
-    tone: 'russia',
-    emblem: '⚔',
-    messages: [
-      { id: 'r1', from: 'alliance', time: '14:07', text: '边境演习不针对各方，请勿误判。' },
-      { id: 'r2', from: 'self', time: '14:10', text: '请提供演习范围与持续时间，以便降低区域风险。' },
-      { id: 'r3', from: 'alliance', time: '14:13', text: '相关通报将通过军事热线同步。' },
-    ],
-  },
-  {
-    id: 'middle-east',
-    name: '中东·和平联盟',
-    subtitle: '建议召开紧急多边安全会议。',
-    time: '13:55',
-    tone: 'middleEast',
-    emblem: '◎',
-    unread: true,
-    messages: [
-      { id: 'm1', from: 'alliance', time: '13:55', text: '建议召开紧急多边安全会议，控制地区紧张态势。' },
-      { id: 'm2', from: 'self', time: '13:58', text: '我们支持会议倡议，并愿提供中立会场。' },
-      { id: 'm3', from: 'alliance', time: '14:02', text: '感谢支持，我们将邀请各方安全顾问参与。' },
-    ],
-  },
-  {
-    id: 'africa',
-    name: '非洲团结联盟',
-    subtitle: '希望获得更多发展合作支持。',
-    time: '13:41',
-    tone: 'africa',
-    emblem: '♕',
-    messages: [
-      { id: 'a1', from: 'alliance', time: '13:41', text: '希望获得更多发展合作支持，重点覆盖能源与粮食安全。' },
-      { id: 'a2', from: 'self', time: '13:48', text: '我们将评估可调配资源，并准备一份合作清单。' },
-      { id: 'a3', from: 'alliance', time: '13:52', text: '期待贵方方案，区域伙伴已准备进入磋商。' },
-    ],
-  },
-];
-
-const quickActions = ['外交谈判', '经济制裁', '军事部署', '科技合作', '文化交流', '情报收集'];
-
-function HudPanel({ className = '', children }: { className?: string; children: ReactNode }) {
-  return <section className={`hud-panel ${className}`}>{children}</section>;
+  return alliances.find((alliance) => (
+    alliance.id === value ||
+    alliance.id === mappedId ||
+    alliance.name === value ||
+    alliance.shortName === value
+  ));
 }
 
-function AllianceAvatar({ alliance, small = false }: { alliance: Pick<AllianceMessage, 'tone' | 'emblem'>; small?: boolean }) {
+function TopicChips() {
   return (
-    <span className={`alliance-avatar alliance-avatar--${alliance.tone}${small ? ' alliance-avatar--small' : ''}`}>
-      <span>{alliance.emblem}</span>
-    </span>
-  );
-}
-
-function GlobalEventsCard() {
-  return (
-    <HudPanel className="global-events-panel right-module right-module--events">
-      <div className="panel-heading panel-heading--hud">
-        <span>全球事件</span>
-        <button type="button" className="panel-link">更多 &gt;</button>
-      </div>
-      <div className="event-list event-list--dense">
-        {events.map((event) => (
-          <button key={event.label} type="button" className="event-row event-row--interactive">
-            <span className={`event-badge event-badge--${event.tone}`}>✦</span>
-            <strong>{event.label}</strong>
-            <time>{event.time}</time>
-          </button>
-        ))}
-      </div>
-    </HudPanel>
-  );
-}
-
-function AllianceMessagesCard({
-  selectedAllianceId,
-  readIds,
-  onSelect,
-}: {
-  selectedAllianceId?: string;
-  readIds: Set<string>;
-  onSelect: (alliance: AllianceMessage) => void;
-}) {
-  const unreadCount = allianceMessages.filter((message) => message.unread && !readIds.has(message.id)).length;
-
-  return (
-    <HudPanel className="alliance-panel right-module right-module--messages">
-      <div className="panel-heading panel-heading--hud alliance-heading">
-        <div>
-          <span>联盟会话</span>
-          <small>ALLIANCE MESSAGES</small>
-        </div>
-        <strong className="unread-badge">{String(unreadCount).padStart(2, '0')}</strong>
-      </div>
-
-      <div className="alliance-list">
-        {allianceMessages.map((alliance) => {
-          const isSelected = alliance.id === selectedAllianceId;
-          const isUnread = Boolean(alliance.unread && !readIds.has(alliance.id));
-
-          return (
-            <button
-              key={alliance.id}
-              type="button"
-              className={`alliance-row${isSelected ? ' alliance-row--selected' : ''}`}
-              onClick={() => onSelect(alliance)}
-            >
-              <AllianceAvatar alliance={alliance} />
-              <span className="alliance-copy">
-                <strong>{alliance.name}</strong>
-                <small>{alliance.subtitle}</small>
-              </span>
-              <span className="alliance-meta">
-                <time>{alliance.time}</time>
-                {isUnread ? <i aria-label="未读消息" /> : null}
-              </span>
-            </button>
-          );
-        })}
-      </div>
-    </HudPanel>
-  );
-}
-
-function QuickActionsCard() {
-  return (
-    <HudPanel className="quick-panel right-module right-module--quick">
-      <div className="panel-heading panel-heading--hud">
-        <span>快捷操作</span>
-        <strong>OPS</strong>
-      </div>
-      <div className="quick-actions quick-actions--hud">
-        {quickActions.map((action) => (
-          <button key={action} type="button">
-            {action}
-          </button>
-        ))}
-      </div>
-    </HudPanel>
-  );
-}
-
-function AllianceChatModal({ alliance, onClose }: { alliance: AllianceMessage; onClose: () => void }) {
-  return (
-    <div className="alliance-chat-modal" role="dialog" aria-label={`${alliance.name} 聊天窗口`}>
-      <header className="chat-titlebar">
-        <AllianceAvatar alliance={alliance} />
-        <div className="chat-title-copy">
-          <strong>{alliance.name}</strong>
-          <span><i /> 在线</span>
-        </div>
-        <button type="button" className="chat-close" aria-label="关闭聊天框" onClick={onClose}>×</button>
-      </header>
-
-      <div className="chat-messages">
-        {alliance.messages.map((message) => (
-          <div key={message.id} className={`chat-message chat-message--${message.from}`}>
-            {message.from === 'alliance' ? <AllianceAvatar alliance={alliance} small /> : null}
-            <div className="chat-bubble">
-              <time>{message.time}</time>
-              <p>{message.text}</p>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      <form className="chat-composer">
-        <input placeholder="输入消息..." aria-label="输入消息" />
-        <button type="button" aria-label="发送消息">
-          <span>➤</span>
-        </button>
-      </form>
+    <div className="wpc-topic-chips">
+      {focusTopics.map((topic) => (
+        <span key={topic}>{topic}</span>
+      ))}
     </div>
   );
 }
 
-export default function RightPanels() {
-  const [selectedAllianceId, setSelectedAllianceId] = useState<string>();
-  const [readIds, setReadIds] = useState<Set<string>>(() => new Set());
-
-  const selectedAlliance = useMemo(
-    () => allianceMessages.find((alliance) => alliance.id === selectedAllianceId),
-    [selectedAllianceId],
+function EventsStage({ events, priorityIssue }: { events: TurnEvent[]; priorityIssue?: string }) {
+  return (
+    <>
+      <RightPanelSection title="本回合事件" code="EVENTS">
+        {events.length > 0 ? <EventList events={events} /> : <p className="wpc-right-copy">等待生成本回合随机事件。</p>}
+      </RightPanelSection>
+      <RightPanelSection title="事件说明" code="PHASE 01">
+        <p className="wpc-right-copy">
+          {events.length > 0
+            ? 'AI 已基于当前全球态势生成本回合随机事件，请审阅事件列表与说明，下一步将进入局势总览阶段。'
+            : '点击底部控制台按钮后，后端会调用 AI 生成本回合事件并保存到数据库。'}
+        </p>
+      </RightPanelSection>
+      <RightPanelSection title="可关注议题" code="FOCUS">
+        {priorityIssue ? <p className="wpc-right-copy">{priorityIssue}</p> : <TopicChips />}
+      </RightPanelSection>
+    </>
   );
+}
 
-  const handleSelectAlliance = (alliance: AllianceMessage) => {
-    setSelectedAllianceId(alliance.id);
-    setReadIds((current) => {
-      if (current.has(alliance.id)) return current;
-      const next = new Set(current);
-      next.add(alliance.id);
-      return next;
-    });
-  };
+function OverviewStage({ alliances, events }: { alliances: AllianceProfile[]; events: TurnEvent[] }) {
+  return (
+    <>
+      <RightPanelSection title="本回合事件" code="EVENTS">
+        {events.length > 0 ? <EventList events={events} compact /> : <p className="wpc-right-copy">尚未读取到本回合事件。</p>}
+      </RightPanelSection>
+      <RightPanelSection title="关键风险" code="RISKS">
+        <ul className="wpc-risk-list">
+          {(events.length > 0 ? events.map((event) => `${event.title}：${event.topic}`) : keyRisks).map((risk) => (
+            <li key={risk}>{risk}</li>
+          ))}
+        </ul>
+      </RightPanelSection>
+      <RightPanelSection title="联盟诉求" code="DEMANDS">
+        <div className="wpc-demand-list">
+          {alliances.map((alliance) => (
+            <div key={alliance.id}>
+              <span style={{ '--alliance-color': alliance.color } as CSSProperties}>
+                <img src={alliance.iconUrl} alt="" />
+              </span>
+              <strong>{alliance.name}</strong>
+              <p>{alliance.demand}</p>
+            </div>
+          ))}
+        </div>
+      </RightPanelSection>
+    </>
+  );
+}
+
+function ProposalStage({ events }: { events: TurnEvent[] }) {
+  return (
+    <>
+      <RightPanelSection title="本回合事件" code="SUMMARY">
+        {events.length > 0 ? <EventList events={events.slice(0, 3)} compact /> : <p className="wpc-right-copy">请先生成并审阅本回合事件。</p>}
+      </RightPanelSection>
+      <RightPanelSection title="可用行动方式" code="ACTIONS">
+        <div className="wpc-action-grid">
+          {diplomaticActions.map((action) => (
+            <button key={action} type="button">
+              <span>{action.slice(0, 1)}</span>
+              {action}
+            </button>
+          ))}
+        </div>
+      </RightPanelSection>
+    </>
+  );
+}
+
+function AdjudicationStage({
+  adjudication,
+  alliances,
+  submittedProposal,
+}: {
+  adjudication?: AIAdjudication | null;
+  alliances: AllianceProfile[];
+  submittedProposal?: string;
+}) {
+  const reactionRows = adjudication?.allianceReactions ?? [];
 
   return (
     <>
-      <aside className="right-panels hud-column" aria-label="Global situation panels">
-        <GlobalEventsCard />
-        <AllianceMessagesCard selectedAllianceId={selectedAllianceId} readIds={readIds} onSelect={handleSelectAlliance} />
-        <QuickActionsCard />
-      </aside>
-      {selectedAlliance ? <AllianceChatModal alliance={selectedAlliance} onClose={() => setSelectedAllianceId(undefined)} /> : null}
+      <RightPanelSection title="AI裁定 / 联盟反应" code="AI RULING">
+        <div className="wpc-reaction-list">
+          {reactionRows.length > 0 ? (
+            reactionRows.map((item) => {
+              const alliance = findAlliance(alliances, item.allianceId);
+
+              return (
+                <div key={`${item.allianceId}-${item.statusLabel}`} className="wpc-reaction-row">
+                  <span style={{ '--alliance-color': alliance?.color ?? '#9fb5c1' } as CSSProperties}>
+                    {alliance ? <img src={alliance.iconUrl} alt="" /> : null}
+                  </span>
+                  <div>
+                    <strong>{alliance?.name ?? item.allianceId}</strong>
+                    <p>{item.reaction}</p>
+                  </div>
+                  <i>{item.statusLabel}</i>
+                </div>
+              );
+            })
+          ) : (
+            aiReactions.map((item) => {
+              const alliance = allianceProfiles[item.allianceId];
+
+              return (
+                <div key={item.allianceId} className="wpc-reaction-row">
+                  <span style={{ '--alliance-color': alliance.color } as CSSProperties}>
+                    <img src={alliance.iconUrl} alt="" />
+                  </span>
+                  <div>
+                    <strong>{alliance.name}</strong>
+                    <p>{item.reaction}</p>
+                  </div>
+                  <i>{item.status}</i>
+                </div>
+              );
+            })
+          )}
+        </div>
+      </RightPanelSection>
+      <RightPanelSection title="AI综合评估" code="ASSESSMENT">
+        <p className="wpc-right-copy">
+          {adjudication?.aiAssessment.summary ??
+            (submittedProposal ? '已基于提交内容完成模拟。' : '尚未检测到正式提案，当前使用默认多边降温方案预估。')}
+        </p>
+      </RightPanelSection>
     </>
+  );
+}
+
+function SettlementStage({ settlement }: { settlement?: RoundSettlement | null }) {
+  return (
+    <>
+      <RightPanelSection title="结算明细" code="RESULTS">
+        <div className="wpc-settlement-list">
+          {settlement
+            ? settlement.eventResults.map((item) => (
+                <div key={item.eventId}>
+                  <span>{item.title}</span>
+                  <strong className="wpc-result wpc-result--yellow">{item.resolutionStatus}</strong>
+                </div>
+              ))
+            : settlementResults.map((item) => (
+                <div key={item.label}>
+                  <span>{item.label}</span>
+                  <strong className={`wpc-result wpc-result--${item.tone}`}>{item.result}</strong>
+                </div>
+              ))}
+        </div>
+      </RightPanelSection>
+      <RightPanelSection title="下一回合预警" code="WARNING">
+        <ul className="wpc-risk-list">
+          {(settlement?.nextRoundWarnings.length ? settlement.nextRoundWarnings : nextTurnWarnings).map((warning) => (
+            <li key={warning}>{warning}</li>
+          ))}
+        </ul>
+      </RightPanelSection>
+      <RightPanelSection title="本回合评价" code="RATING">
+        <div className="wpc-rating">
+          <strong>{settlement?.rating ?? 'A'}</strong>
+          <p>{settlement?.ratingText ?? '积极推动多边对话，局势显著改善。'}</p>
+        </div>
+      </RightPanelSection>
+    </>
+  );
+}
+
+const stageContent: Record<CouncilStageId, (props: RightPanelsProps) => ReactElement> = {
+  events: (props) => <EventsStage events={props.events ?? []} priorityIssue={props.priorityIssue} />,
+  overview: (props) => <OverviewStage alliances={props.alliances ?? Object.values(allianceProfiles)} events={props.events ?? []} />,
+  proposal: (props) => <ProposalStage events={props.events ?? []} />,
+  adjudication: (props) => (
+    <AdjudicationStage
+      adjudication={props.adjudication}
+      alliances={props.alliances ?? Object.values(allianceProfiles)}
+      submittedProposal={props.submittedProposal}
+    />
+  ),
+  settlement: (props) => <SettlementStage settlement={props.settlement} />,
+};
+
+export default function RightPanels(props: RightPanelsProps) {
+  const activeStage = councilStages[props.activeStageIndex];
+  const renderStage = stageContent[activeStage.id];
+
+  return (
+    <aside className="wpc-right hud-column" aria-label="动态阶段信息栏">
+      <div className="wpc-right-stage">
+        <span>当前阶段</span>
+        <strong>{activeStage.label}</strong>
+      </div>
+      {renderStage(props)}
+    </aside>
   );
 }

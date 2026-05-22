@@ -1,122 +1,116 @@
-import { countryNames, demoCountryState } from '../../data/demoCountryState';
-import { getFactionConfig } from '../../data/factions';
+import type { CSSProperties } from 'react';
+import type { GameStatus } from '../../contracts/game';
+import {
+  councilAlliances,
+  councilStages,
+  type CouncilStageId,
+  type AllianceProfile,
+  type GlobeSelection,
+  type WorldMetric,
+  worldMetrics,
+} from '../../data/worldPeaceCouncil';
+import AllianceList from './AllianceList';
+import MetricBar from './MetricBar';
 
 type LeftPanelsProps = {
-  selectedCountry: string;
+  activeStageIndex: number;
+  alliances?: AllianceProfile[];
+  briefing?: string;
+  eventCount?: number;
+  gameStatus?: GameStatus;
+  metrics?: WorldMetric[];
+  selectedLocation?: GlobeSelection;
 };
 
-const countryDisplay: Record<string, { name: string; type: string; flag: string }> = {
-  GBR: { name: '大不列颠联盟', type: '主要国家', flag: '🇬🇧' },
-  USA: { name: '美利坚合众国', type: '主要国家', flag: '🇺🇸' },
-  CHN: { name: '中华联盟', type: '主要国家', flag: '🇨🇳' },
-  RUS: { name: '俄罗斯联邦', type: '主要国家', flag: '🇷🇺' },
-  FRA: { name: '法兰西共和国', type: '主要国家', flag: '🇫🇷' },
+const stageBrief: Record<CouncilStageId, string> = {
+  events: '优先确认高危事件的扩散路径，避免误判在本回合早期累积。',
+  overview: '重点比较军演、能源与粮食三条风险线，寻找可交换条件。',
+  proposal: '建议同时点名两个以上联盟，形成可被 AI 裁定的多边提案。',
+  adjudication: '等待联盟反应汇总，关注有条件同意背后的让步成本。',
+  settlement: '复盘未解决事件，并为下一回合预留援助或调查资源。',
 };
 
-const countryMetrics = [
-  { label: '经济', value: '1,890', tone: 'gold' },
-  { label: '科技', value: '1,234', tone: 'blue' },
-  { label: '军事', value: '2,345', tone: 'green' },
-  { label: '文化', value: '987', tone: 'purple' },
-  { label: '影响力', value: '2,309', tone: 'orange' },
-];
+const gameStatusText: Record<GameStatus, string> = {
+  ACTIVE: '秩序仍可维持',
+  WON: '和平框架达成',
+  FAILED: '世界秩序崩溃',
+  COLD_PEACE: '冷和平结局',
+  ABANDONED: '已放弃',
+};
 
-const relations = [
-  { flag: '🇺🇸', country: '美利坚合众国', status: '友好', delta: '+150', tone: 'friendly' },
-  { flag: '🇩🇪', country: '德意志联邦', status: '中立', delta: '+21', tone: 'neutral' },
-  { flag: '🇨🇳', country: '中华联盟', status: '竞争', delta: '-45', tone: 'rival' },
-  { flag: '🇷🇺', country: '俄罗斯联邦', status: '敌对', delta: '-120', tone: 'hostile' },
-  { flag: '🇫🇷', country: '法兰西共和国', status: '友好', delta: '+89', tone: 'friendly' },
-];
-
-const intelFeed = [
-  { icon: '协', text: '我国与美利坚合众国关系提升', time: '14:32', tone: 'blue' },
-  { icon: '科', text: '德意志联邦完成科技合作协议', time: '14:28', tone: 'green' },
-  { icon: '舰', text: '中华联盟在南海部署新舰队', time: '14:25', tone: 'red' },
-  { icon: '制', text: '俄罗斯联邦对我国发起贸易制裁', time: '14:20', tone: 'purple' },
-  { icon: '会', text: '法兰西共和国邀请我国参加峰会', time: '14:15', tone: 'gold' },
-];
-
-export default function LeftPanels({ selectedCountry }: LeftPanelsProps) {
-  const faction = getFactionConfig(demoCountryState[selectedCountry] ?? 'neutral');
-  const display = countryDisplay[selectedCountry] ?? {
-    name: countryNames[selectedCountry] ?? '大不列颠联盟',
-    type: faction.name,
-    flag: '◌',
-  };
+export default function LeftPanels({
+  activeStageIndex,
+  alliances = councilAlliances,
+  briefing,
+  eventCount = 0,
+  gameStatus = 'ACTIVE',
+  metrics = worldMetrics,
+  selectedLocation,
+}: LeftPanelsProps) {
+  const activeStage = councilStages[activeStageIndex];
+  const currentBriefing = briefing?.trim() || stageBrief[activeStage.id];
 
   return (
-    <aside className="left-panels hud-column" aria-label="Country command panels">
-      <section className="hud-panel country-panel">
-        <div className="country-identity">
-          <span className="country-flag" aria-hidden="true">
-            {display.flag}
-          </span>
-          <div>
-            <h2>{display.name}</h2>
-            <p>{display.type}</p>
-          </div>
-          <button type="button" className="country-menu" aria-label="切换国家">
-            ˅
-          </button>
+    <aside className="wpc-left hud-column" aria-label="世界状态与联盟概览">
+      <section className="wpc-panel">
+        <div className="wpc-panel-heading">
+          <span>游戏目标 / 世界状态</span>
+          <strong>OBJECTIVE</strong>
         </div>
 
-        <div className="power-grid">
+        <div className="wpc-objective">
           <div>
-            <span>综合国力</span>
-            <strong>8,765</strong>
+            <span>主要目标</span>
+            <strong>在 20 回合内避免世界大战</strong>
           </div>
           <div>
-            <span>全球排名</span>
-            <strong>3</strong>
+            <span>失败条件</span>
+            <strong>全球紧张度 &gt;= 100</strong>
           </div>
         </div>
 
-        <div className="metric-list">
-          {countryMetrics.map((metric) => (
-            <div key={metric.label} className="metric-row">
-              <span className={`metric-icon metric-icon--${metric.tone}`}>{metric.label.slice(0, 1)}</span>
-              <span>{metric.label}</span>
-              <strong>{metric.value}<small>/h</small></strong>
-            </div>
+        <div className="wpc-metric-list">
+          {metrics.map((metric) => (
+            <MetricBar key={metric.id} metric={metric} />
           ))}
+        </div>
+
+        <div className="wpc-state-grid">
+          <div>
+            <span>本回合危机数</span>
+            <strong>{eventCount}</strong>
+          </div>
+          <div>
+            <span>当前阶段</span>
+            <strong>{activeStage.statusLabel}</strong>
+          </div>
+          <div>
+            <span>游戏状态</span>
+            <strong>{gameStatusText[gameStatus]}</strong>
+          </div>
         </div>
       </section>
 
-      <section className="hud-panel">
-        <div className="panel-heading">
-          <span>外交关系</span>
-          <strong>{selectedCountry}</strong>
+      <section className="wpc-panel">
+        <div className="wpc-panel-heading">
+          <span>七大联盟概览</span>
+          <strong>ALLIANCES</strong>
         </div>
-        <div className="relation-list">
-          {relations.map((relation) => (
-            <div key={relation.country} className="relation-row">
-              <span className="relation-flag">{relation.flag}</span>
-              <span className="relation-country">{relation.country}</span>
-              <span className={`relation-status relation-status--${relation.tone}`}>{relation.status}</span>
-              <strong className={`relation-delta relation-delta--${relation.tone}`}>{relation.delta}</strong>
-            </div>
-          ))}
-        </div>
-        <button type="button" className="panel-primary-action">
-          查看详细关系
-        </button>
+        <AllianceList alliances={alliances} />
       </section>
 
-      <section className="hud-panel">
-        <div className="panel-heading">
-          <span>实时动态</span>
-          <button type="button" className="panel-link">更多 &gt;</button>
+      <section className="wpc-panel wpc-brief-panel">
+        <div className="wpc-panel-heading">
+          <span>本回合简报</span>
+          <strong>BRIEFING</strong>
         </div>
-        <ul className="intel-feed">
-          {intelFeed.map((item) => (
-            <li key={item.text}>
-              <span className={`feed-icon feed-icon--${item.tone}`}>{item.icon}</span>
-              <span>{item.text}</span>
-              <time>{item.time}</time>
-            </li>
-          ))}
-        </ul>
+        <p>{currentBriefing}</p>
+        {selectedLocation ? (
+          <div className="wpc-selected-brief" style={{ '--selection-color': selectedLocation.allianceColor } as CSSProperties}>
+            <span>{selectedLocation.kind === 'city' ? selectedLocation.cityName : selectedLocation.countryName}</span>
+            <strong>{selectedLocation.allianceName}</strong>
+          </div>
+        ) : null}
       </section>
     </aside>
   );

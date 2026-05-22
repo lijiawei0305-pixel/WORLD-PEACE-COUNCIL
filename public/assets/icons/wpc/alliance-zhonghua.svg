@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="Zhonghua Alliance icon">
+  <defs>
+    <linearGradient id="g" x1="18" y1="18" x2="110" y2="110">
+      <stop offset="0" stop-color="#7cf6ff"/>
+      <stop offset="0.52" stop-color="#21d4ff"/>
+      <stop offset="1" stop-color="#f7c948"/>
+    </linearGradient>
+    <filter id="glow" x="-25%" y="-25%" width="150%" height="150%">
+      <feGaussianBlur stdDeviation="3" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <circle cx="64" cy="64" r="56" fill="#07111f" stroke="#21d4ff" stroke-width="3"/>
+  <path d="M64 16l42 24v48l-42 24-42-24V40z" fill="url(#g)" opacity="0.92" filter="url(#glow)"/>
+  <rect x="43" y="43" width="42" height="42" rx="8" fill="#07111f" opacity="0.78" stroke="#fff6b0" stroke-width="3"/>
+  <path d="M64 31v24M64 73v24M31 64h24M73 64h24M42 42l17 17M86 42L69 59M42 86l17-17M86 86L69 69" fill="none" stroke="#e8fbff" stroke-width="3" stroke-linecap="round"/>
+  <circle cx="64" cy="64" r="9" fill="#f7c948"/>
+</svg>

@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="Middle East Peace Alliance icon">
+  <defs>
+    <linearGradient id="g" x1="22" y1="18" x2="106" y2="112">
+      <stop offset="0" stop-color="#fff6b0"/>
+      <stop offset="0.48" stop-color="#f7c948"/>
+      <stop offset="1" stop-color="#28f0c4"/>
+    </linearGradient>
+    <filter id="glow" x="-25%" y="-25%" width="150%" height="150%">
+      <feGaussianBlur stdDeviation="3" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <circle cx="64" cy="64" r="56" fill="#07111f" stroke="#f7c948" stroke-width="3"/>
+  <circle cx="64" cy="64" r="38" fill="url(#g)" filter="url(#glow)"/>
+  <path d="M37 66c17-19 37-19 54 0M37 83c17-19 37-19 54 0" fill="none" stroke="#07111f" stroke-width="6" stroke-linecap="round" opacity="0.78"/>
+  <path d="M64 29v70M44 43h40M49 99h30" fill="none" stroke="#e8fbff" stroke-width="4" stroke-linecap="round"/>
+  <circle cx="64" cy="64" r="9" fill="#07111f"/>
+</svg>

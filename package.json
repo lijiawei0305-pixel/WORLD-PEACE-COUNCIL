@@ -9,11 +9,13 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.106.1",
     "globe.gl": "^2.44.4",
     "lil-gui": "^0.21.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "three": "^0.179.1"
+    "three": "^0.179.1",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@types/react": "^19.2.15",

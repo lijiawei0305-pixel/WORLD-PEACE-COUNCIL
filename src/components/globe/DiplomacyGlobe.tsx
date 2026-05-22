@@ -1,9 +1,10 @@
-import { useEffect, useRef } from 'react';
+import { type CSSProperties, useEffect, useRef } from 'react';
 import Globe, { type GlobeInstance } from 'globe.gl';
 import * as THREE from 'three';
 import { capitals, type Capital } from '../../data/capitals';
 import { demoDiplomacyArcs } from '../../data/demoDiplomacyArcs';
 import { getFactionConfig } from '../../data/factions';
+import { createGlobeSelection, type GlobeSelection } from '../../data/worldPeaceCouncil';
 import {
   createArcLabel,
   createRenderArcs,
@@ -38,7 +39,8 @@ type CountriesGeoJson = {
 
 type DiplomacyGlobeProps = {
   selectedCountry: string;
-  onCountrySelect: (code: string) => void;
+  selectedLocation?: GlobeSelection;
+  onLocationSelect: (selection: GlobeSelection) => void;
 };
 
 const importantCapitalIds = new Set(capitals.map((capital) => capital.id));
@@ -63,6 +65,44 @@ function createCapitalLabel(capital: Capital): HTMLElement {
   return el;
 }
 
+function createCapitalTooltip(capital: Capital): string {
+  const selection = createGlobeSelection({
+    kind: 'city',
+    isoA3: capital.isoA3,
+    countryName: capital.country,
+    cityName: capital.name,
+  });
+
+  return `
+    <div class="country-tooltip">
+      <div class="country-tooltip__name">${capital.name}</div>
+      <div>Country: ${selection.countryName}</div>
+      <div>ISO: ${selection.isoA3}</div>
+      <div>所属联盟: <span class="country-tooltip__badge" style="--tooltip-alliance-color:${selection.allianceColor}">${selection.allianceName}</span></div>
+      <div>影响力: ${selection.influence}</div>
+      <div>稳定度: ${selection.stability}%</div>
+    </div>
+  `;
+}
+
+function getCapitalRadius(capital: Capital, selectedCountry: string): number {
+  const baseRadius = capital.importance === 'major' ? 0.35 : capital.importance === 'regional' ? 0.25 : 0.16;
+  return capital.isoA3 === selectedCountry ? baseRadius + 0.16 : baseRadius;
+}
+
+function getCapitalColor(capital: Capital, selectedCountry: string): string {
+  if (capital.isoA3 === selectedCountry) {
+    return '#ffffff';
+  }
+
+  return getFactionConfig(capital.faction).color;
+}
+
+function getCountryName(country: CountryFeature): string {
+  const props = country.properties ?? {};
+  return String(props.NAME ?? props.ADMIN ?? props.NAME_LONG ?? getIsoA3(country));
+}
+
 function tuneSceneLighting(world: GlobeInstance) {
   const scene = world.scene() as unknown as THREE.Scene;
 
@@ -81,7 +121,7 @@ function tuneSceneLighting(world: GlobeInstance) {
   });
 }
 
-export default function DiplomacyGlobe({ selectedCountry, onCountrySelect }: DiplomacyGlobeProps) {
+export default function DiplomacyGlobe({ selectedCountry, selectedLocation, onLocationSelect }: DiplomacyGlobeProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const screenHaloRef = useRef<HTMLDivElement | null>(null);
   const globeRef = useRef<GlobeInstance | null>(null);
@@ -162,18 +202,20 @@ export default function DiplomacyGlobe({ selectedCountry, onCountrySelect }: Dip
       .pointLat<Capital>('lat')
       .pointLng<Capital>('lng')
       .pointAltitude<Capital>(0.018)
-      .pointRadius<Capital>((capital) => {
-        if (capital.importance === 'major') {
-          return 0.35;
-        }
-
-        if (capital.importance === 'regional') {
-          return 0.25;
-        }
-
-        return 0.16;
+      .pointRadius<Capital>((capital) => getCapitalRadius(capital, selectedCountryRef.current))
+      .pointColor<Capital>((capital) => getCapitalColor(capital, selectedCountryRef.current))
+      .pointLabel<Capital>(createCapitalTooltip)
+      .onPointClick<Capital>((capital) => {
+        onLocationSelect(
+          createGlobeSelection({
+            kind: 'city',
+            isoA3: capital.isoA3,
+            countryName: capital.country,
+            cityName: capital.name,
+          }),
+        );
+        globe.pointOfView({ lat: capital.lat, lng: capital.lng, altitude: 1.55 }, 650);
       })
-      .pointColor<Capital>((capital) => getFactionConfig(capital.faction).color)
       .ringsData<Capital>(capitals.filter((capital) => importantCapitalIds.has(capital.id)))
       .ringLat<Capital>('lat')
       .ringLng<Capital>('lng')
@@ -279,7 +321,14 @@ export default function DiplomacyGlobe({ selectedCountry, onCountrySelect }: Dip
             refreshPolygonFocus();
           })
           .onPolygonClick<CountryFeature>((country) => {
-            onCountrySelect(getIsoA3(country));
+            onLocationSelect(
+              createGlobeSelection({
+                kind: 'country',
+                isoA3: getIsoA3(country),
+                countryName: getCountryName(country),
+                continent: country.properties?.CONTINENT,
+              }),
+            );
           });
       })
       .catch(() => {
@@ -305,7 +354,7 @@ export default function DiplomacyGlobe({ selectedCountry, onCountrySelect }: Dip
       globeRef.current = null;
       container.replaceChildren();
     };
-  }, [onCountrySelect]);
+  }, [onLocationSelect]);
 
   useEffect(() => {
     const globe = globeRef.current;
@@ -319,13 +368,51 @@ export default function DiplomacyGlobe({ selectedCountry, onCountrySelect }: Dip
       )
       .polygonStrokeColor<CountryFeature>((country) =>
         getPolygonStrokeColor(country, selectedCountry, hoverCountryRef.current),
-      );
+      )
+      .pointRadius<Capital>((capital) => getCapitalRadius(capital, selectedCountry))
+      .pointColor<Capital>((capital) => getCapitalColor(capital, selectedCountry));
   }, [selectedCountry]);
 
   return (
     <section className="globe-stage" aria-label="Interactive diplomacy globe">
       <div ref={containerRef} className="globe-canvas" />
       <div ref={screenHaloRef} className="screen-atmosphere" />
+      {selectedLocation ? (
+        <article
+          className="globe-selection-card"
+          style={
+            {
+              '--selection-color': selectedLocation.allianceColor,
+              '--selection-glow': selectedLocation.allianceGlow,
+            } as CSSProperties
+          }
+        >
+          <span>{selectedLocation.kind === 'city' ? '城市节点' : '国家区域'}</span>
+          <h2>{selectedLocation.kind === 'city' ? selectedLocation.cityName : selectedLocation.countryName}</h2>
+          {selectedLocation.kind === 'city' ? <p>{selectedLocation.countryName}</p> : null}
+          <dl>
+            <div>
+              <dt>ISO</dt>
+              <dd>{selectedLocation.isoA3}</dd>
+            </div>
+            <div>
+              <dt>所属联盟</dt>
+              <dd>
+                <i />
+                {selectedLocation.allianceName}
+              </dd>
+            </div>
+            <div>
+              <dt>影响力</dt>
+              <dd>{selectedLocation.influence}</dd>
+            </div>
+            <div>
+              <dt>稳定度</dt>
+              <dd>{selectedLocation.stability}%</dd>
+            </div>
+          </dl>
+        </article>
+      ) : null}
     </section>
   );
 }

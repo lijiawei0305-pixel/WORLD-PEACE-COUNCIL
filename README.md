@@ -1,60 +1,114 @@
-# WORLD AI DIPLOMACY Demo
+# 世界和平理事会 World Peace Council
 
-一个基于 `Vite + React + TypeScript + globe.gl + Three.js` 的全球外交策略游戏主界面原型。
+一个基于 `Vite + React + TypeScript + globe.gl + Three.js` 的全球外交策略游戏原型。
 
-项目目标是展示一个可拖拽、可缩放的 3D 地球，并在地球上叠加阵营区域、外交关系线、代表城市节点、事件涟漪和科幻 HUD 界面。
+玩家扮演“首席秩序架构师”，不是世界统治者，也不能直接命令任何联盟。每回合，世界会生成新的危机事件；玩家需要提交一项外交提案，协调七大联盟的利益、诉求和底线。AI 负责模拟联盟反应，后端规则引擎负责结算世界指标、联盟满意度和胜负状态。
 
-## 当前效果
+当前项目不是 Next.js 项目，不使用 `app/api`。前端是 Vite，后端使用 Supabase Postgres + Supabase Edge Functions。
 
-- 黑色宇宙科技背景
-- 可拖拽旋转、滚轮缩放的 3D 地球
-- 真实地球夜景纹理、凹凸纹理、云层
-- 自定义地球边缘 Rim Glow 和屏幕空间大气光晕
-- 7 个全球阵营的国家区域覆盖
-- 每个阵营保留 1 个代表城市节点
-- 城市之间的外交关系弧线
-- 左右 HUD 面板、顶部阶段栏、底部 AI 战略指令输入框
-- 开发环境内置 `Earth Rim Debug` 调参面板
+## 核心玩法
+
+一局游戏最多 20 回合。
+
+每回合按以下阶段推进：
+
+1. `RANDOM_EVENT`：生成 3-5 个随机世界事件。
+2. `SITUATION_OVERVIEW`：查看本回合风险、联盟诉求和世界指标变化。
+3. `DIPLOMATIC_PROPOSAL`：玩家提交外交提案，例如协调军事热线、能源安全会谈、AI 风险核查。
+4. `AI_ADJUDICATION`：AI 判断各联盟对提案的态度。
+5. `ROUND_SETTLEMENT`：后端规则引擎结算世界指标、事件状态和联盟满意度。
+
+胜负条件：
+
+- `globalTension >= 100`：游戏失败，世界秩序崩溃。
+- 第 20 回合后 `peaceAgreement >= 60`：达成和平框架，游戏胜利。
+- 第 20 回合后未失败但 `peaceAgreement < 60`：进入冷和平结局。
+
+## 世界指标
+
+后端持久化并结算以下世界状态，所有数值限制在 `0-100`：
+
+- `globalTension`：全球紧张度
+- `worldStability`：世界稳定度
+- `aiRisk`：AI 风险指数
+- `economicPressure`：经济压力
+- `humanitarianCrisis`：人道危机
+- `peaceAgreement`：和平协议进度
+
+初始值：
+
+```text
+globalTension = 60
+worldStability = 65
+aiRisk = 35
+economicPressure = 40
+humanitarianCrisis = 30
+peaceAgreement = 20
+```
+
+## 七大联盟
+
+游戏中的七大联盟：
+
+- 北美·西方联盟
+- 中华联盟
+- 俄罗斯联邦
+- 中东·和平联盟
+- 非洲团结联盟
+- 拉美·南美联盟
+- 东南亚联盟
+
+每个联盟有独立性格、核心诉求、红线、当前立场、满意度和压力标签。AI 可以让联盟接受、有条件接受、观望、担忧或拒绝玩家提案；AI 不能直接写数据库。
+
+## 当前实现状态
+
+已完成：
+
+- Vite + React + TypeScript 前端视觉原型
+- `globe.gl` 3D 地球、阵营区域、外交弧线、城市节点和 HUD
+- Supabase Postgres 数据库 schema
+- Supabase Edge Functions 后端 API
+- Zod API Contract 和 AI 输出校验
+- 真实 AI API 调用与 fallback
+- 后端规则引擎
+- 创建游戏、生成事件、推进阶段、提交提案、AI 裁定、回合结算、进入下一回合
+- 国家/城市到联盟映射 API
+- 前端 API Client：`src/lib/apiClient.ts`
+
+仍待接入：
+
+- 当前浏览器 UI 主要还是视觉和交互壳，尚未把 HUD 按钮完整接入 `apiClient`。
+- 后端 MVP 闭环已经可以通过 API 跑通；要在浏览器里点按钮完整玩一局，需要继续接入前端状态流。
 
 ## 技术栈
 
+前端：
+
 - Vite
-- React
+- React 19
 - TypeScript
 - globe.gl
 - Three.js
 - lil-gui
 
-## 安装依赖
+后端：
 
-```bash
-npm install
-```
-
-## 本地运行
-
-```bash
-npm run dev
-```
-
-默认访问：
-
-```text
-http://localhost:5173/
-```
-
-## 构建
-
-```bash
-npm run build
-```
+- Supabase Postgres
+- Supabase Edge Functions
+- Supabase Auth
+- Zod
+- OpenAI-compatible Chat Completions API
 
 ## 项目结构
 
 ```text
 src/
   App.tsx
-  main.tsx
+  contracts/
+    game.ts
+  lib/
+    apiClient.ts
+    gameSchemas.ts
   components/
     globe/
       DiplomacyGlobe.tsx
@@ -67,85 +121,201 @@ src/
       LeftPanels.tsx
       RightPanels.tsx
       BottomCommandPanel.tsx
-      FloatingToolBar.tsx
+      AllianceList.tsx
+      EventList.tsx
+      MetricBar.tsx
+      StageStepper.tsx
   data/
-    capitals.ts
+    worldPeaceCouncil.ts
     demoCountryState.ts
     demoDiplomacyArcs.ts
-    demoMarkers.ts
     factions.ts
   styles/
     app.css
     globe.css
     hud.css
-  types/
-    globe-gl.d.ts
+    wpc.css
 
-public/
-  data/
-    countries.geojson
-  textures/
-    earth-night-4k.jpg
-    earth-bump-4k.png
-    earth-clouds-4k.png
+supabase/
+  config.toml
+  migrations/
+    001_world_peace_council_schema.sql
+  functions/
+    create-game/
+    get-game-state/
+    generate-events/
+    advance-stage/
+    submit-proposal/
+    settle-round/
+    next-round/
+    alliance-map/
+    _shared/
+      aiClient.ts
+      aiPrompts.ts
+      aiSchemas.ts
+      cors.ts
+      gameConstants.ts
+      response.ts
+      ruleEngine.ts
+      supabaseClient.ts
+      types.ts
 ```
 
-## 阵营设定
+## 环境变量
 
-当前 Demo 使用 7 个阵营：
+前端 `.env.local`：
 
-- 中华联盟
-- 北美-西方联盟
-- 俄罗斯联盟
-- 印度-南亚联盟
-- 拉美-南美联盟
-- 中东-伊斯兰联盟
-- 非洲联盟
+```bash
+VITE_SUPABASE_URL=http://127.0.0.1:54321
+VITE_SUPABASE_ANON_KEY=<local-anon-key>
+```
 
-阵营国家映射位于：
+Edge Functions `supabase/.env.local`：
+
+```bash
+SUPABASE_URL=http://127.0.0.1:54321
+SUPABASE_SERVICE_ROLE_KEY=<local-service-role-key>
+
+AI_MOCK_MODE=false
+AI_BASE_URL=<openai-compatible-base-url>
+AI_API_KEY=<server-side-ai-api-key>
+AI_MODEL=gpt-5.5
+```
+
+注意：
+
+- `AI_API_KEY` 只能放在 `supabase/.env.local`，不能放进前端 `.env.local`。
+- 前端只使用 Supabase anon key 和用户登录 session token。
+- 如果只想先跑通闭环，可以设置 `AI_MOCK_MODE=true`。
+
+## 本地运行
+
+安装依赖：
+
+```bash
+npm install
+```
+
+启动 Docker Desktop 后，启动 Supabase：
+
+```bash
+npx supabase start
+npx supabase db reset
+```
+
+查看本地 Supabase key：
+
+```bash
+npx supabase status -o env
+```
+
+启动 Edge Functions：
+
+```bash
+npx supabase functions serve --no-verify-jwt --env-file supabase/.env.local
+```
+
+启动前端：
+
+```bash
+npm run dev
+```
+
+默认访问：
 
 ```text
-src/data/demoCountryState.ts
+http://127.0.0.1:5173/
 ```
 
-阵营颜色配置位于：
+Supabase Studio：
 
 ```text
-src/data/factions.ts
+http://127.0.0.1:54323
 ```
 
-## 地球视觉系统
+## 本地测试用户
 
-地球渲染核心位于：
+可以在 Supabase Studio 的 `Authentication -> Users` 中创建测试用户，也可以通过 Auth API 注册。
+
+示例：
 
 ```text
-src/components/globe/DiplomacyGlobe.tsx
+playtest@example.com
+playtest123
 ```
 
-额外视觉效果拆分为：
+## 后端 API
 
-- `earthRim.ts`：地球边缘 Fresnel Rim Shader 和屏幕空间光晕同步
-- `globeEffects.ts`：云层和太空灯光
-- `globeArcStyle.ts`：外交弧线样式
-- `globeCountryStyle.ts`：国家区域颜色、高度、tooltip
+Edge Functions：
 
-## 纹理资源
+- `create-game`：创建新游戏。
+- `get-game-state`：读取当前游戏快照。
+- `generate-events`：生成或读取当前回合事件。
+- `advance-stage`：推进允许的阶段。
+- `submit-proposal`：保存玩家外交提案并调用 AI 裁定。
+- `settle-round`：规则引擎结算回合。
+- `next-round`：进入下一回合。
+- `alliance-map`：公开读取国家/城市到联盟映射。
 
-当前项目已经包含可运行的纹理资源：
+前端统一通过：
 
 ```text
-public/textures/earth-night-4k.jpg
-public/textures/earth-bump-4k.png
-public/textures/earth-clouds-4k.png
+src/lib/apiClient.ts
 ```
 
-后续可以直接替换为更高质量的 4K 地球纹理，不需要修改代码路径。
+调用这些函数。
 
-## 后续扩展方向
+## 数据库表
 
-- 接入真实国家/外交数据
-- 使用 Zustand 管理游戏状态
-- 将 `globe.gl` 封装为 `GlobeEngine`
-- 后续迁移到 `three-globe` 或纯 Three.js
-- 接入 AI 指令系统，解析玩家自然语言战略命令
+核心表：
 
+- `profiles`
+- `game_sessions`
+- `alliances`
+- `game_alliance_states`
+- `rounds`
+- `round_events`
+- `proposals`
+- `ai_adjudications`
+- `settlements`
+- `country_alliance_map`
+
+RLS 规则：
+
+- `alliances` 和 `country_alliance_map` 可公开读。
+- 游戏相关表只允许用户读取自己的游戏。
+- 业务写入由 Edge Functions 使用 service role 执行。
+
+## 构建
+
+```bash
+npm run build
+```
+
+当前 `build` 会先执行 TypeScript 项目检查，再执行 Vite 生产构建。
+
+## 开发原则
+
+- 不迁移 Next.js。
+- 不创建 `app/api`。
+- 不替换 `globe.gl`。
+- 不在前端暴露 AI key。
+- AI 只能给出结构化裁定，不能直接修改数据库。
+- 世界指标变化必须经过后端规则引擎 clamp。
+- 复杂功能优先让位于 MVP 回合闭环。
+
+## 下一步
+
+最关键的下一步是把当前 HUD 接入 `src/lib/apiClient.ts`：
+
+```text
+createGame
+generateEvents
+advanceStage
+submitProposal
+settleRound
+nextRound
+getGameState
+```
+
+完成后，玩家就可以直接在浏览器中创建游戏、阅读事件、提交外交提案、查看 AI 裁定和进入下一回合。

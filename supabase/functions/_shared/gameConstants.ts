@@ -1,0 +1,76 @@
+import type { AllianceState, WorldState } from './types.ts';
+
+export const INITIAL_WORLD_STATE: WorldState = {
+  globalTension: 60,
+  worldStability: 65,
+  aiRisk: 35,
+  economicPressure: 40,
+  humanitarianCrisis: 30,
+  peaceAgreement: 20,
+};
+
+export const INITIAL_ALLIANCE_STATES: AllianceState[] = [
+  {
+    allianceId: 'north_west',
+    allianceName: '北美·西方联盟',
+    stance: '警惕',
+    satisfaction: 58,
+    currentDemand: '军事透明',
+    pressureTags: [],
+    lastReaction: null,
+  },
+  {
+    allianceId: 'china',
+    allianceName: '中华联盟',
+    stance: '合作',
+    satisfaction: 68,
+    currentDemand: 'AI治理',
+    pressureTags: [],
+    lastReaction: null,
+  },
+  {
+    allianceId: 'russia',
+    allianceName: '俄罗斯联邦',
+    stance: '强硬',
+    satisfaction: 46,
+    currentDemand: '边境安全',
+    pressureTags: [],
+    lastReaction: null,
+  },
+  {
+    allianceId: 'middle_east',
+    allianceName: '中东·和平联盟',
+    stance: '中立',
+    satisfaction: 61,
+    currentDemand: '能源走廊',
+    pressureTags: [],
+    lastReaction: null,
+  },
+  {
+    allianceId: 'africa',
+    allianceName: '非洲团结联盟',
+    stance: '支持',
+    satisfaction: 74,
+    currentDemand: '发展基金',
+    pressureTags: [],
+    lastReaction: null,
+  },
+  {
+    allianceId: 'latin_america',
+    allianceName: '拉美·南美联盟',
+    stance: '观望',
+    satisfaction: 57,
+    currentDemand: '粮食价格',
+    pressureTags: [],
+    lastReaction: null,
+  },
+  {
+    allianceId: 'southeast_asia',
+    allianceName: '东南亚联盟',
+    stance: '中立',
+    satisfaction: 63,
+    currentDemand: '供应链稳定',
+    pressureTags: [],
+    lastReaction: null,
+  },
+];
