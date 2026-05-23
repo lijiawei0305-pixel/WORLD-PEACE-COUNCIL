@@ -44,7 +44,7 @@ const RETRY_INSTRUCTION = [
   '字段名、枚举值、数字范围必须完全符合要求。',
 ].join('\n');
 
-const DEFAULT_AI_REQUEST_TIMEOUT_MS = 15000;
+const DEFAULT_AI_REQUEST_TIMEOUT_MS = 45000;
 
 function getEnv(name: string): string | undefined {
   const value = Deno.env.get(name)?.trim();
@@ -73,14 +73,14 @@ function getAIRequestTimeoutMs(): number {
   }
 
   const value = Number.parseInt(raw, 10);
-  return Number.isFinite(value) && value >= 3000 && value <= 30000
+  return Number.isFinite(value) && value >= 3000 && value <= 60000
     ? value
     : DEFAULT_AI_REQUEST_TIMEOUT_MS;
 }
 
 function getAIReasoningEffort(): string | undefined {
   const value = getEnv('AI_REASONING_EFFORT')?.toLowerCase();
-  return ['minimal', 'low', 'medium', 'high'].includes(value ?? '') ? value : undefined;
+  return ['low', 'medium', 'high', 'xhigh'].includes(value ?? '') ? value : undefined;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

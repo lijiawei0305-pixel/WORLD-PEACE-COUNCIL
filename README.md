@@ -189,8 +189,8 @@ AI_MOCK_MODE=false
 AI_BASE_URL=<openai-compatible-base-url>
 AI_API_KEY=<server-side-ai-api-key>
 AI_MODEL=gpt-5.4-mini
-AI_REASONING_EFFORT=minimal
-AI_REQUEST_TIMEOUT_MS=15000
+AI_REASONING_EFFORT=low
+AI_REQUEST_TIMEOUT_MS=45000
 ALLOWED_ORIGINS=http://localhost:5173,http://127.0.0.1:5173,http://localhost:4173,http://127.0.0.1:4173
 ```
 
