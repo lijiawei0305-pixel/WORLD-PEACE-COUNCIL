@@ -8,7 +8,14 @@
  * 不配置时回退到本地开发常用端口，方便首次跑起来。
  */
 
-const DEFAULT_ALLOWED_ORIGINS = 'http://localhost:5173,http://localhost:4173';
+const DEFAULT_ALLOWED_ORIGINS = [
+  'http://localhost:5173',
+  'http://127.0.0.1:5173',
+  'http://[::1]:5173',
+  'http://localhost:4173',
+  'http://127.0.0.1:4173',
+  'http://[::1]:4173',
+].join(',');
 
 function readAllowedOrigins(): string[] {
   const raw = Deno.env.get('ALLOWED_ORIGINS')?.trim();

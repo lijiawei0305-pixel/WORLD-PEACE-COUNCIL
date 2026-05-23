@@ -170,6 +170,15 @@ VITE_SUPABASE_URL=http://127.0.0.1:54321
 VITE_SUPABASE_ANON_KEY=<local-anon-key>
 ```
 
+连接云端 Supabase 时，前端 `.env.local` 改为云端项目地址和 anon key：
+
+```bash
+VITE_SUPABASE_URL=https://qjpmsqynwyxtdpvparrm.supabase.co
+VITE_SUPABASE_ANON_KEY=<cloud-anon-key>
+VITE_PLAYTEST_EMAIL=<dev-playtest-email>
+VITE_PLAYTEST_PASSWORD=<dev-only-password>
+```
+
 Edge Functions `supabase/.env.local`：
 
 ```bash
@@ -182,15 +191,19 @@ AI_API_KEY=<server-side-ai-api-key>
 AI_MODEL=gpt-5.4-mini
 AI_REASONING_EFFORT=minimal
 AI_REQUEST_TIMEOUT_MS=15000
+ALLOWED_ORIGINS=http://localhost:5173,http://127.0.0.1:5173,http://localhost:4173,http://127.0.0.1:4173
 ```
 
 注意：
 
 - `AI_API_KEY` 只能放在 `supabase/.env.local`，不能放进前端 `.env.local`。
 - 前端只使用 Supabase anon key 和用户登录 session token。
+- `SUPABASE_SERVICE_ROLE_KEY` 只能给 Edge Functions 使用，不能放进任何 `VITE_` 前端环境变量。
 - `AI_MOCK_MODE` 默认值：**true（mock 模式）**。不配置时所有 AI 调用返回 fallback 数据。
 - 设置 `AI_MOCK_MODE=false` 并配置 `AI_API_KEY` 才会调用真实 LLM。
 - 响应中的 `aiSource` 字段标注每次调用是 `mock` / `live` / `fallback`。
+- `ALLOWED_ORIGINS` 是 Edge Functions 的浏览器 CORS 白名单，必须精确匹配浏览器地址栏里的 origin；`http://localhost:5173` 和 `http://127.0.0.1:5173` 是两个不同 origin。
+- 本地 Vite dev server 在 `localhost` / `127.0.0.1` 下会把前端请求代理到 `/supabase`，但 Vite preview、生产构建或直接访问云端 Edge Functions 时仍依赖 `ALLOWED_ORIGINS`。
 
 ## 本地运行
 
@@ -236,6 +249,16 @@ Supabase Studio：
 ```text
 http://127.0.0.1:54323
 ```
+
+## Supabase 连接排查
+
+如果浏览器里出现“无法连接云端 Supabase（xxx.supabase.co）。请检查网络或代理设置”，先区分三类问题：
+
+- 本地前端服务没启动：`http://127.0.0.1:5173/` 无法打开时，重新运行 `npm run dev`。
+- 云端项目不可达：用 `curl -I https://qjpmsqynwyxtdpvparrm.supabase.co/auth/v1/settings` 检查 DNS、TLS 和 Supabase 网关是否可达；返回 401 也说明域名是通的。
+- CORS 被浏览器拦截：Edge Function 的 OPTIONS 响应如果没有 `Access-Control-Allow-Origin`，浏览器会把请求报成 `Failed to fetch`。此时需要在 Supabase Dashboard 的 Edge Function secrets 里配置 `ALLOWED_ORIGINS`，包含当前前端 origin，例如 `http://127.0.0.1:5173`、`http://localhost:5173`、preview 域名和生产域名。
+
+云端部署时，配置完成后需要重新部署或重启 Edge Functions，让新的环境变量生效。
 
 ## 本地测试用户
 
@@ -305,7 +328,7 @@ npm run build
 - [ ] 设置 `VITE_PLAYTEST_PASSWORD` 为空或删除，使用真实 Auth UI
 - [ ] `AI_MOCK_MODE` 设为 `false`
 - [ ] `AI_API_KEY` 通过密钥管理服务（如 Vault）注入，不在环境变量文件里明文存储
-- [ ] CORS 白名单：在 Edge Functions 的 `ALLOWED_ORIGINS` 环境变量里配置生产域名（逗号分隔），不再使用本地开发端口默认值；origin 不在白名单时 Edge Function 不返回 `Access-Control-Allow-Origin` header，浏览器会严格拒绝
+- [ ] CORS 白名单：在 Edge Functions 的 `ALLOWED_ORIGINS` 环境变量里配置生产域名、preview 域名以及需要保留的本地调试 origin（逗号分隔）；origin 不在白名单时 Edge Function 不返回 `Access-Control-Allow-Origin` header，浏览器会严格拒绝
 - [ ] Supabase Auth 开启邮箱验证
 - [ ] 执行所有 migration（001 到 006）
 
