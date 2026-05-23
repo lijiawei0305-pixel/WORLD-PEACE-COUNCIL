@@ -1,5 +1,6 @@
 import { evaluateProposalWithAI } from '../_shared/aiClient.ts';
-import { EvaluateProposalOutputSchema } from '../_shared/aiSchemas.ts';
+import { PROMPT_VERSION } from '../_shared/aiPrompts.ts';
+import { EvaluateProposalOutputSchema, type AiSource } from '../_shared/aiSchemas.ts';
 import { handleOptions } from '../_shared/cors.ts';
 import { errorResponse, successResponse } from '../_shared/response.ts';
 import { createServiceRoleClient } from '../_shared/supabaseClient.ts';
@@ -87,6 +88,7 @@ type SubmitProposalResponse = {
   proposal: DiplomaticProposal;
   adjudication: EvaluateProposalOutput;
   currentStage: 'AI_ADJUDICATION';
+  aiSource: AiSource;
 };
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -159,9 +161,7 @@ async function parseRequestBody(request: Request): Promise<SubmitProposalRequest
     !Number.isInteger(body.roundNumber) ||
     body.roundNumber < 1 ||
     body.roundNumber > 20 ||
-    typeof body.proposalText !== 'string' ||
-    body.proposalText.trim().length < 8 ||
-    body.proposalText.trim().length > 2000
+    typeof body.proposalText !== 'string'
   ) {
     return null;
   }
@@ -278,6 +278,14 @@ Deno.serve(async (request) => {
 
   if (!body) {
     return errorResponse(request, 'INVALID_REQUEST', '请求体必须包含合法的 gameId、roundNumber 和 proposalText。', 400);
+  }
+
+  if (body.proposalText.trim().length < 8) {
+    return errorResponse(request, 'PROPOSAL_TOO_SHORT', '提案不能少于8个字', 400);
+  }
+
+  if (body.proposalText.length > 2000) {
+    return errorResponse(request, 'PROPOSAL_TOO_LONG', '提案不能超过2000字', 400);
   }
 
   const supabase = createServiceRoleClient();
@@ -426,7 +434,7 @@ Deno.serve(async (request) => {
   }
 
   const diplomaticProposal = mapProposal(proposal);
-  const adjudication = await evaluateProposalWithAI({
+  const adjudicationResult = await evaluateProposalWithAI({
     round: body.roundNumber,
     worldState: worldStateFromGame(game),
     alliances: allianceStatesResult.data.map(mapAllianceState),
@@ -434,7 +442,8 @@ Deno.serve(async (request) => {
     proposal: diplomaticProposal,
     historySummary: game.history_summary ?? '',
   });
-  const validation = EvaluateProposalOutputSchema.safeParse(adjudication);
+  const rawAiString = adjudicationResult.rawString;
+  const validation = EvaluateProposalOutputSchema.safeParse(adjudicationResult.output);
 
   if (!validation.success) {
     console.error('SUBMIT_PROPOSAL_AI_VALIDATION_FAILED', validation.error);
@@ -447,8 +456,10 @@ Deno.serve(async (request) => {
     game_id: game.id,
     round_id: round.id,
     proposal_id: proposal.id,
-    model: Deno.env.get('AI_MODEL') ?? null,
-    raw_output: validatedAdjudication,
+    model: adjudicationResult.model,
+    duration_ms: adjudicationResult.durationMs,
+    prompt_version: PROMPT_VERSION,
+    raw_output: rawAiString ?? { mock: true },
     parsed_output: validatedAdjudication,
     success_probability: validatedAdjudication.aiAssessment.successProbability,
     expected_impact: validatedAdjudication.aiAssessment.expectedImpact,
@@ -493,6 +504,7 @@ Deno.serve(async (request) => {
       proposal: diplomaticProposal,
       adjudication: validatedAdjudication,
       currentStage: 'AI_ADJUDICATION',
+      aiSource: validatedAdjudication.aiSource,
     } satisfies SubmitProposalResponse,
     201,
   );

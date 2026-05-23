@@ -56,9 +56,18 @@ const stageButtonLabel = {
   settlement: '开始下一回合',
 };
 
-function getStageGuidance(stageId: keyof typeof baseStageGuidance, hasGame: boolean, hasEvents: boolean): string {
+function getStageGuidance(
+  stageId: keyof typeof baseStageGuidance,
+  hasGame: boolean,
+  hasEvents: boolean,
+  hasConnectionError: boolean,
+): string {
   if (!hasGame) {
-    return '正在连接后端，必要时会创建一局新的游戏。';
+    if (hasConnectionError) {
+      return '云端连接失败，请按下方提示处理后重试。';
+    }
+
+    return '正在连接云端游戏后端，必要时会创建一局新的游戏。';
   }
 
   if (stageId === 'events' && hasEvents) {
@@ -72,15 +81,17 @@ function getStageButtonLabel({
   gameStatus,
   hasEvents,
   hasGame,
+  hasConnectionError,
   stageId,
 }: {
   gameStatus: GameStatus;
   hasEvents: boolean;
   hasGame: boolean;
+  hasConnectionError: boolean;
   stageId: keyof typeof stageButtonLabel;
 }): string {
   if (!hasGame) {
-    return '连接 / 创建游戏';
+    return hasConnectionError ? '重试连接' : '连接 / 创建游戏';
   }
 
   if (gameStatus !== 'ACTIVE' && stageId === 'settlement') {
@@ -182,13 +193,15 @@ export default function BottomCommandPanel({
   const activeStage = councilStages[activeStageIndex];
   const isProposalStage = activeStage.id === 'proposal';
   const terminalGame = gameStatus !== 'ACTIVE';
+  const hasConnectionError = Boolean(errorMessage) && !hasGame;
   const stageActionLabel = getStageButtonLabel({
     gameStatus,
     hasEvents,
     hasGame,
+    hasConnectionError,
     stageId: activeStage.id as keyof typeof stageButtonLabel,
   });
-  const stageGuidance = getStageGuidance(activeStage.id, hasGame, hasEvents);
+  const stageGuidance = getStageGuidance(activeStage.id, hasGame, hasEvents, hasConnectionError);
   const [draft, setDraft] = useState('');
   const [activeMentionIndex, setActiveMentionIndex] = useState(0);
   const [showEstimate, setShowEstimate] = useState(false);

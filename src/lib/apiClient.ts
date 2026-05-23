@@ -8,6 +8,7 @@ import type {
 } from '../contracts/game';
 import {
   AIAdjudicationSchema,
+  AiSourceSchema,
   AllianceReactionAttitudeSchema,
   DiplomaticProposalSchema,
   EventResolutionStatusSchema,
@@ -45,6 +46,7 @@ type EdgeFunctionOptions = {
 
 type SupabaseConfig = {
   anonKey: string;
+  projectUrl: string;
   functionsBaseUrl: string;
   url: string;
 };
@@ -71,6 +73,7 @@ const ApiEnvelopeSchema = z.union([
 
 const GenerateEventsResponseSchema = z
   .object({
+    aiSource: AiSourceSchema,
     events: z.array(RoundEventSchema),
     worldState: WorldStateSchema,
     roundBriefing: z.string(),
@@ -113,12 +116,15 @@ const BackendAIAssessmentSchema = z
     strengths: z.array(NonEmptyTextSchema),
     weaknesses: z.array(NonEmptyTextSchema),
     expectedImpact: MetricChangesSchema,
+    feasibility: z.number().min(0).max(1),
+    escalationRisk: z.number().min(0).max(1),
+    confidence: z.number().min(0).max(1),
   })
   .strict();
 
 const BackendEventResolutionForecastSchema = z
   .object({
-    eventTitle: NonEmptyTextSchema,
+    eventId: z.string().uuid(),
     resolutionStatus: EventResolutionStatusSchema,
     reason: NonEmptyTextSchema,
     expectedImpact: MetricChangesSchema,
@@ -137,6 +143,7 @@ const NextRoundRiskSchema = z
 
 const BackendEvaluateProposalOutputSchema = z
   .object({
+    aiSource: AiSourceSchema,
     proposalUnderstanding: BackendProposalUnderstandingSchema,
     allianceReactions: z.array(BackendAllianceReactionSchema).min(1),
     aiAssessment: BackendAIAssessmentSchema,
@@ -150,6 +157,7 @@ const RawSubmitProposalResponseSchema = z
     proposal: DiplomaticProposalSchema,
     adjudication: BackendEvaluateProposalOutputSchema,
     currentStage: z.literal('AI_ADJUDICATION'),
+    aiSource: AiSourceSchema,
   })
   .strict();
 
@@ -158,14 +166,16 @@ const SubmitProposalResponseSchema = z
     proposal: DiplomaticProposalSchema,
     adjudication: AIAdjudicationSchema,
     currentStage: z.literal('AI_ADJUDICATION'),
+    aiSource: AiSourceSchema,
   })
   .strict();
 
 const SettleRoundResponseSchema = z
   .object({
-    settlement: RoundSettlementSchema,
+    settlement: z.unknown(),
+    aiSource: AiSourceSchema.optional(),
   })
-  .strict();
+  .passthrough();
 
 const AllianceMapResponseSchema = z
   .object({
@@ -217,6 +227,14 @@ export class ApiClientError extends Error {
 let cachedConfig: SupabaseConfig | null = null;
 let cachedSupabaseClient: SupabaseClient | null = null;
 
+function shouldUseSupabaseDevProxy(): boolean {
+  if (!import.meta.env.DEV || typeof window === 'undefined') {
+    return false;
+  }
+
+  return ['localhost', '127.0.0.1', '::1'].includes(window.location.hostname);
+}
+
 function getSupabaseConfig(): SupabaseConfig {
   if (cachedConfig) {
     return cachedConfig;
@@ -233,10 +251,14 @@ function getSupabaseConfig(): SupabaseConfig {
   }
 
   const normalizedUrl = supabaseUrl.replace(/\/+$/, '');
+  const clientUrl = shouldUseSupabaseDevProxy()
+    ? `${window.location.origin}/supabase`
+    : normalizedUrl;
   cachedConfig = {
     anonKey: supabaseAnonKey,
-    functionsBaseUrl: `${normalizedUrl}/functions/v1`,
-    url: normalizedUrl,
+    projectUrl: normalizedUrl,
+    functionsBaseUrl: `${clientUrl}/functions/v1`,
+    url: clientUrl,
   };
 
   return cachedConfig;
@@ -344,6 +366,130 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+function getStringField(value: Record<string, unknown> | undefined, ...keys: string[]): string | undefined {
+  if (!value) {
+    return undefined;
+  }
+
+  for (const key of keys) {
+    const field = value[key];
+    if (typeof field === 'string' && field.trim()) {
+      return field;
+    }
+  }
+
+  return undefined;
+}
+
+function getNumberField(value: Record<string, unknown> | undefined, ...keys: string[]): number | undefined {
+  if (!value) {
+    return undefined;
+  }
+
+  for (const key of keys) {
+    const field = value[key];
+    if (typeof field === 'number' && Number.isFinite(field)) {
+      return field;
+    }
+  }
+
+  return undefined;
+}
+
+function getRecordField(value: Record<string, unknown> | undefined, ...keys: string[]): Record<string, unknown> | undefined {
+  if (!value) {
+    return undefined;
+  }
+
+  for (const key of keys) {
+    const field = value[key];
+    if (isRecord(field)) {
+      return field;
+    }
+  }
+
+  return undefined;
+}
+
+function getArrayField(value: Record<string, unknown> | undefined, ...keys: string[]): unknown[] {
+  if (!value) {
+    return [];
+  }
+
+  for (const key of keys) {
+    const field = value[key];
+    if (Array.isArray(field)) {
+      return field;
+    }
+  }
+
+  return [];
+}
+
+function normalizeMetricChangesValue(value: unknown): Record<string, unknown> {
+  return isRecord(value) ? value : {};
+}
+
+function normalizeSettlement(value: unknown, snapshot: Record<string, unknown>): unknown {
+  if (!isRecord(value)) {
+    return value;
+  }
+
+  const events = getArrayField(snapshot, 'events').filter(isRecord);
+  const alliances = getArrayField(snapshot, 'alliances').filter(isRecord);
+  const eventById = new Map(events.map((event) => [getStringField(event, 'id') ?? '', event]));
+  const allianceById = new Map(alliances.map((alliance) => [getStringField(alliance, 'allianceId', 'alliance_id') ?? '', alliance]));
+  const eventResults = getArrayField(value, 'eventResults', 'event_results').filter(isRecord).map((eventResult) => {
+    const eventId = getStringField(eventResult, 'eventId', 'event_id') ?? '';
+    const event = eventById.get(eventId);
+
+    return {
+      eventId,
+      title: getStringField(eventResult, 'title') ?? getStringField(event, 'title') ?? '未命名事件',
+      resolutionStatus: getStringField(eventResult, 'resolutionStatus', 'resolution_status')
+        ?? getStringField(event, 'resolutionStatus', 'resolution_status')
+        ?? 'UNCHANGED',
+      summary: getStringField(eventResult, 'summary') ?? '本事件未在本回合获得实质解决。',
+      metricChanges: normalizeMetricChangesValue(
+        getRecordField(eventResult, 'metricChanges', 'metric_changes'),
+      ),
+    };
+  });
+  const allianceChanges = getArrayField(value, 'allianceChanges', 'alliance_changes').filter(isRecord).map((change) => {
+    const allianceId = getStringField(change, 'allianceId', 'alliance_id') ?? '';
+    const alliance = allianceById.get(allianceId);
+
+    return {
+      allianceId,
+      allianceName: getStringField(change, 'allianceName', 'alliance_name')
+        ?? getStringField(alliance, 'allianceName', 'alliance_name')
+        ?? (allianceId || '未知联盟'),
+      satisfactionDelta: getNumberField(change, 'satisfactionDelta', 'satisfaction_delta') ?? 0,
+      newSatisfaction: getNumberField(change, 'newSatisfaction', 'new_satisfaction')
+        ?? getNumberField(alliance, 'satisfaction')
+        ?? 0,
+      stance: getStringField(change, 'stance') ?? getStringField(alliance, 'stance') ?? '中立',
+      currentDemand: getStringField(change, 'currentDemand', 'current_demand')
+        ?? getStringField(alliance, 'currentDemand', 'current_demand')
+        ?? '维持现有立场。',
+      pressureTags: getArrayField(change, 'pressureTags', 'pressure_tags').filter((tag): tag is string => typeof tag === 'string'),
+    };
+  });
+
+  return {
+    round: getNumberField(value, 'round') ?? getNumberField(snapshot, 'currentRound') ?? 1,
+    summary: getStringField(value, 'summary') ?? '本回合结算完成。',
+    metricChanges: normalizeMetricChangesValue(getRecordField(value, 'metricChanges', 'metric_changes')),
+    newWorldState: getRecordField(value, 'newWorldState', 'new_world_state') ?? getRecordField(snapshot, 'worldState') ?? {},
+    eventResults,
+    allianceChanges,
+    nextRoundWarnings: getArrayField(value, 'nextRoundWarnings', 'next_round_warnings').filter((warning): warning is string => typeof warning === 'string'),
+    rating: getNumberField(value, 'rating') ?? 0,
+    ratingText: getStringField(value, 'ratingText', 'rating_text') ?? '局势胶着',
+    gameStatus: getStringField(value, 'gameStatus', 'game_status', 'game_status_after') ?? 'ACTIVE',
+  };
+}
+
 function normalizeGameSnapshot(value: unknown): unknown {
   if (!isRecord(value)) {
     return value;
@@ -372,6 +518,10 @@ function normalizeGameSnapshot(value: unknown): unknown {
 
   if (normalized.adjudication !== null && normalized.adjudication !== undefined) {
     normalized.adjudication = normalizeAdjudication(normalized.adjudication);
+  }
+
+  if (normalized.settlement !== null && normalized.settlement !== undefined) {
+    normalized.settlement = normalizeSettlement(normalized.settlement, normalized);
   }
 
   return normalized;
@@ -427,13 +577,13 @@ function normalizeBackendAdjudication(adjudication: BackendEvaluateProposalOutpu
     })),
     aiAssessment: {
       summary: adjudication.aiAssessment.summary,
-      feasibility: ratioFromPercentage(adjudication.aiAssessment.successProbability),
-      escalationRisk: estimateEscalationRisk(metricImpact),
-      confidence: 0.7,
+      feasibility: adjudication.aiAssessment.feasibility,
+      escalationRisk: adjudication.aiAssessment.escalationRisk,
+      confidence: adjudication.aiAssessment.confidence,
       metricImpact,
     },
     eventResolutionForecast: adjudication.eventResolutionForecast.map((forecast) => ({
-      eventId: forecast.eventTitle,
+      eventId: forecast.eventId,
       resolutionStatus: forecast.resolutionStatus,
       reasoning: forecast.reason,
       metricImpact: forecast.expectedImpact,
@@ -510,6 +660,7 @@ export async function submitProposal(
     proposal: raw.proposal,
     adjudication: normalizeBackendAdjudication(raw.adjudication),
     currentStage: raw.currentStage,
+    aiSource: raw.aiSource,
   };
 
   return parseResponseData('submit-proposal', SubmitProposalResponseSchema, normalized);

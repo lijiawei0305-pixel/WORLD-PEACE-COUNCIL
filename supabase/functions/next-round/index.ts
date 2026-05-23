@@ -192,35 +192,27 @@ Deno.serve(async (request) => {
   const nextRound = game.current_round + 1;
   const startingWorldState = worldStateFromGame(game);
 
-  const { error: createRoundError } = await supabase.from('rounds').insert({
-    game_id: game.id,
-    round_number: nextRound,
-    stage: 'RANDOM_EVENT',
-    starting_world_state: startingWorldState,
+  const { error: rpcError } = await supabase.rpc('next_round_v1', {
+    p_game_id: game.id,
+    p_new_round_number: nextRound,
+    p_starting_world_state: startingWorldState,
   });
 
-  if (createRoundError) {
-    console.error('NEXT_ROUND_CREATE_ROUND_FAILED', createRoundError);
-    return errorResponse(request, 'NEXT_ROUND_FAILED', '创建下一回合失败。', 500);
+  if (rpcError) {
+    console.error('NEXT_ROUND_RPC_FAILED', rpcError);
+    return errorResponse(request, 'NEXT_ROUND_FAILED', rpcError.message, 500);
   }
 
-  const { data: updatedGame, error: updateGameError } = await supabase
+  const { data: updatedGame, error: readGameError } = await supabase
     .from('game_sessions')
-    .update({
-      current_round: nextRound,
-      current_stage: 'RANDOM_EVENT',
-    })
-    .eq('id', game.id)
-    .eq('current_round', game.current_round)
-    .eq('current_stage', 'ROUND_SETTLEMENT')
     .select(GAME_SELECT)
+    .eq('id', game.id)
     .returns<GameSessionRow[]>()
     .single();
 
-  if (updateGameError || !updatedGame) {
-    console.error('NEXT_ROUND_UPDATE_GAME_FAILED', updateGameError);
-    await supabase.from('rounds').delete().eq('game_id', game.id).eq('round_number', nextRound);
-    return errorResponse(request, 'NEXT_ROUND_FAILED', '更新游戏回合失败。', 500);
+  if (readGameError || !updatedGame) {
+    console.error('NEXT_ROUND_READ_GAME_FAILED', readGameError);
+    return errorResponse(request, 'NEXT_ROUND_FAILED', '读取已推进的游戏状态失败。', 500);
   }
 
   const { data: alliances, error: alliancesError } = await supabase

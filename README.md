@@ -179,14 +179,18 @@ SUPABASE_SERVICE_ROLE_KEY=<local-service-role-key>
 AI_MOCK_MODE=false
 AI_BASE_URL=<openai-compatible-base-url>
 AI_API_KEY=<server-side-ai-api-key>
-AI_MODEL=gpt-5.5
+AI_MODEL=gpt-5.4-mini
+AI_REASONING_EFFORT=minimal
+AI_REQUEST_TIMEOUT_MS=15000
 ```
 
 注意：
 
 - `AI_API_KEY` 只能放在 `supabase/.env.local`，不能放进前端 `.env.local`。
 - 前端只使用 Supabase anon key 和用户登录 session token。
-- 如果只想先跑通闭环，可以设置 `AI_MOCK_MODE=true`。
+- `AI_MOCK_MODE` 默认值：**true（mock 模式）**。不配置时所有 AI 调用返回 fallback 数据。
+- 设置 `AI_MOCK_MODE=false` 并配置 `AI_API_KEY` 才会调用真实 LLM。
+- 响应中的 `aiSource` 字段标注每次调用是 `mock` / `live` / `fallback`。
 
 ## 本地运行
 
@@ -293,6 +297,17 @@ npm run build
 ```
 
 当前 `build` 会先执行 TypeScript 项目检查，再执行 Vite 生产构建。
+
+## 生产部署清单
+
+上线前请逐项确认：
+
+- [ ] 设置 `VITE_PLAYTEST_PASSWORD` 为空或删除，使用真实 Auth UI
+- [ ] `AI_MOCK_MODE` 设为 `false`
+- [ ] `AI_API_KEY` 通过密钥管理服务（如 Vault）注入，不在环境变量文件里明文存储
+- [ ] CORS 白名单：在 Edge Functions 的 `ALLOWED_ORIGINS` 环境变量里配置生产域名（逗号分隔），不再使用本地开发端口默认值；origin 不在白名单时 Edge Function 不返回 `Access-Control-Allow-Origin` header，浏览器会严格拒绝
+- [ ] Supabase Auth 开启邮箱验证
+- [ ] 执行所有 migration（001 到 006）
 
 ## 开发原则
 

@@ -1,4 +1,5 @@
 import { generateEventsWithAI } from '../_shared/aiClient.ts';
+import type { AiSource } from '../_shared/aiSchemas.ts';
 import { handleOptions } from '../_shared/cors.ts';
 import { errorResponse, successResponse } from '../_shared/response.ts';
 import { applyMetricChanges, clampMetricChanges } from '../_shared/ruleEngine.ts';
@@ -16,7 +17,7 @@ import type {
   WorldState,
 } from '../_shared/types.ts';
 
-type GenerateEventsAIOutput = Awaited<ReturnType<typeof generateEventsWithAI>>;
+type GenerateEventsAIOutput = Awaited<ReturnType<typeof generateEventsWithAI>>['output'];
 
 type GenerateEventsRequest = {
   gameId: string;
@@ -77,6 +78,7 @@ type GenerateEventsResponse = {
   worldState: WorldState;
   roundBriefing: string;
   priorityIssue: string;
+  aiSource: AiSource;
 };
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -230,12 +232,14 @@ function buildResponse(
   worldState: WorldState,
   roundBriefing: string | null,
   priorityIssue: string | null,
+  aiSource: AiSource,
 ): GenerateEventsResponse {
   return {
     events,
     worldState,
     roundBriefing: roundBriefing ?? '',
     priorityIssue: priorityIssue ?? '',
+    aiSource,
   };
 }
 
@@ -343,6 +347,7 @@ Deno.serve(async (request) => {
         round.after_events_world_state ?? worldStateFromGame(game),
         round.briefing,
         round.priority_issue,
+        'live',
       ),
     );
   }
@@ -373,17 +378,16 @@ Deno.serve(async (request) => {
 
   const currentWorldState = worldStateFromGame(game);
   const allianceStates = allianceRows.map(mapAllianceState);
-  const aiOutput: GenerateEventsAIOutput = await generateEventsWithAI({
+  const aiResult = await generateEventsWithAI({
     round: body.roundNumber,
     worldState: currentWorldState,
     alliances: allianceStates,
     historySummary: game.history_summary ?? '',
   });
+  const aiOutput: GenerateEventsAIOutput = aiResult.output;
 
   const afterEventsWorldState = applyEventImpact(currentWorldState, aiOutput.events);
-  const eventInserts = aiOutput.events.map((event) => ({
-    game_id: game.id,
-    round_id: round.id,
+  const eventsPayload = aiOutput.events.map((event) => ({
     title: event.title,
     type: event.type,
     severity: event.severity,
@@ -392,53 +396,43 @@ Deno.serve(async (request) => {
     potential_impact: event.potentialImpact,
     recommended_actions: event.recommendedActions,
     unresolved_consequence: event.unresolvedConsequence,
-    resolution_status: 'UNCHANGED',
   }));
 
-  const { data: insertedEvents, error: insertEventsError } = await supabase
+  const { error: rpcError } = await supabase.rpc('generate_events_v1', {
+    p_game_id: game.id,
+    p_round_id: round.id,
+    p_events: eventsPayload,
+    p_stage: 'RANDOM_EVENT',
+    p_briefing: aiOutput.roundBriefing,
+    p_priority_issue: aiOutput.priorityIssue,
+    p_after_events_world_state: afterEventsWorldState,
+  });
+
+  if (rpcError) {
+    console.error('GENERATE_EVENTS_RPC_FAILED', rpcError);
+    return errorResponse(request, 'GENERATE_EVENTS_FAILED', rpcError.message, 500);
+  }
+
+  const { data: insertedEvents, error: readEventsError } = await supabase
     .from('round_events')
-    .insert(eventInserts)
     .select(ROUND_EVENT_SELECT)
+    .eq('round_id', round.id)
+    .order('created_at', { ascending: true })
     .returns<RoundEventRow[]>();
 
-  if (insertEventsError || !insertedEvents) {
-    console.error('GENERATE_EVENTS_INSERT_EVENTS_FAILED', insertEventsError);
-    return errorResponse(request, 'GENERATE_EVENTS_FAILED', '保存回合事件失败。', 500);
-  }
-
-  const { error: updateRoundError } = await supabase
-    .from('rounds')
-    .update({
-      after_events_world_state: afterEventsWorldState,
-      briefing: aiOutput.roundBriefing,
-      priority_issue: aiOutput.priorityIssue,
-    })
-    .eq('id', round.id);
-
-  if (updateRoundError) {
-    console.error('GENERATE_EVENTS_UPDATE_ROUND_FAILED', updateRoundError);
-    return errorResponse(request, 'GENERATE_EVENTS_FAILED', '保存事件后的回合状态失败。', 500);
-  }
-
-  const { error: updateGameError } = await supabase
-    .from('game_sessions')
-    .update({
-      global_tension: afterEventsWorldState.globalTension,
-      world_stability: afterEventsWorldState.worldStability,
-      ai_risk: afterEventsWorldState.aiRisk,
-      economic_pressure: afterEventsWorldState.economicPressure,
-      humanitarian_crisis: afterEventsWorldState.humanitarianCrisis,
-      peace_agreement: afterEventsWorldState.peaceAgreement,
-    })
-    .eq('id', game.id);
-
-  if (updateGameError) {
-    console.error('GENERATE_EVENTS_UPDATE_GAME_FAILED', updateGameError);
-    return errorResponse(request, 'GENERATE_EVENTS_FAILED', '同步游戏世界状态失败。', 500);
+  if (readEventsError || !insertedEvents) {
+    console.error('GENERATE_EVENTS_READ_INSERTED_FAILED', readEventsError);
+    return errorResponse(request, 'GENERATE_EVENTS_FAILED', '读取已插入的事件失败。', 500);
   }
 
   return successResponse(
     request,
-    buildResponse(insertedEvents.map(mapRoundEvent), afterEventsWorldState, aiOutput.roundBriefing, aiOutput.priorityIssue),
+    buildResponse(
+      insertedEvents.map(mapRoundEvent),
+      afterEventsWorldState,
+      aiOutput.roundBriefing,
+      aiOutput.priorityIssue,
+      aiOutput.aiSource,
+    ),
   );
 });

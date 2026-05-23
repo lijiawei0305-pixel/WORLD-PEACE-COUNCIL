@@ -1,22 +1,21 @@
 import {
   EvaluateProposalOutputSchema,
   GenerateEventsOutputSchema,
-  RoundSettlementOutputSchema,
+  type AiSource,
 } from './aiSchemas.ts';
 import {
   buildEvaluateProposalPrompt,
   buildGenerateEventsPrompt,
-  buildRoundSettlementPrompt,
   WORLD_PEACE_COUNCIL_SYSTEM_PROMPT,
 } from './aiPrompts.ts';
 
 type GenerateEventsInput = Parameters<typeof buildGenerateEventsPrompt>[0];
 type EvaluateProposalInput = Parameters<typeof buildEvaluateProposalPrompt>[0];
-type RoundSettlementInput = Parameters<typeof buildRoundSettlementPrompt>[0];
 
 type GenerateEventsOutput = ReturnType<typeof GenerateEventsOutputSchema.parse>;
 type EvaluateProposalOutput = ReturnType<typeof EvaluateProposalOutputSchema.parse>;
-type RoundSettlementOutput = ReturnType<typeof RoundSettlementOutputSchema.parse>;
+
+type WithAiSource = { aiSource: AiSource };
 
 type SafeParseSchema<TOutput> = {
   safeParse: (value: unknown) =>
@@ -30,12 +29,12 @@ type SafeParseSchema<TOutput> = {
       };
 };
 
-type StructuredAIRequest<TOutput> = {
+type StructuredAIRequest<TOutput extends WithAiSource> = {
   taskName: string;
   prompt: string;
   temperature: number;
   schema: SafeParseSchema<TOutput>;
-  fallback: TOutput;
+  fallback: Omit<TOutput, 'aiSource'>;
 };
 
 const RETRY_INSTRUCTION = [
@@ -45,13 +44,15 @@ const RETRY_INSTRUCTION = [
   '字段名、枚举值、数字范围必须完全符合要求。',
 ].join('\n');
 
+const DEFAULT_AI_REQUEST_TIMEOUT_MS = 15000;
+
 function getEnv(name: string): string | undefined {
   const value = Deno.env.get(name)?.trim();
   return value ? value : undefined;
 }
 
 function isMockMode(): boolean {
-  return getEnv('AI_MOCK_MODE')?.toLowerCase() !== 'false';
+  return getEnv('AI_MOCK_MODE')?.toLowerCase() === 'true';
 }
 
 function getRequiredEnv(name: string): string {
@@ -62,6 +63,24 @@ function getRequiredEnv(name: string): string {
   }
 
   return value;
+}
+
+function getAIRequestTimeoutMs(): number {
+  const raw = getEnv('AI_REQUEST_TIMEOUT_MS');
+
+  if (!raw) {
+    return DEFAULT_AI_REQUEST_TIMEOUT_MS;
+  }
+
+  const value = Number.parseInt(raw, 10);
+  return Number.isFinite(value) && value >= 3000 && value <= 30000
+    ? value
+    : DEFAULT_AI_REQUEST_TIMEOUT_MS;
+}
+
+function getAIReasoningEffort(): string | undefined {
+  const value = getEnv('AI_REASONING_EFFORT')?.toLowerCase();
+  return ['minimal', 'low', 'medium', 'high'].includes(value ?? '') ? value : undefined;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -92,42 +111,79 @@ function parseAIJson(content: string): unknown {
   return JSON.parse(content);
 }
 
-async function requestOpenAICompatibleJson(prompt: string, temperature: number): Promise<unknown> {
+type RawAIResponse = {
+  parsed: unknown;
+  rawString: string;
+  model: string;
+};
+
+async function requestOpenAICompatibleJson(prompt: string, temperature: number): Promise<RawAIResponse> {
   const baseUrl = getRequiredEnv('AI_BASE_URL').replace(/\/+$/, '');
   const apiKey = getRequiredEnv('AI_API_KEY');
   const model = getRequiredEnv('AI_MODEL');
+  const reasoningEffort = getAIReasoningEffort();
+  const controller = new AbortController();
+  const timeoutMs = getAIRequestTimeoutMs();
+  let timeout: number | undefined;
 
-  const response = await fetch(`${baseUrl}/chat/completions`, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model,
-      temperature,
-      response_format: {
-        type: 'json_object',
+  let response: Response;
+  try {
+    const fetchPromise = fetch(`${baseUrl}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
       },
-      messages: [
-        {
-          role: 'system',
-          content: WORLD_PEACE_COUNCIL_SYSTEM_PROMPT,
+      body: JSON.stringify({
+        model,
+        temperature,
+        ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
+        response_format: {
+          type: 'json_object',
         },
-        {
-          role: 'user',
-          content: prompt,
-        },
-      ],
-    }),
-  });
+        messages: [
+          {
+            role: 'system',
+            content: WORLD_PEACE_COUNCIL_SYSTEM_PROMPT,
+          },
+          {
+            role: 'user',
+            content: prompt,
+          },
+        ],
+      }),
+      signal: controller.signal,
+    });
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timeout = setTimeout(() => {
+        controller.abort();
+        reject(new Error(`AI_REQUEST_TIMEOUT_${timeoutMs}MS`));
+      }, timeoutMs);
+    });
+
+    response = await Promise.race([fetchPromise, timeoutPromise]);
+  } catch (err) {
+    if (err instanceof Error && err.name === 'AbortError') {
+      throw new Error(`AI_REQUEST_TIMEOUT_${timeoutMs}MS`);
+    }
+    throw err;
+  } finally {
+    if (timeout !== undefined) {
+      clearTimeout(timeout);
+    }
+  }
 
   if (!response.ok) {
     throw new Error(`AI request failed with status ${response.status}.`);
   }
 
   const responseJson: unknown = await response.json();
-  return parseAIJson(getAssistantContent(responseJson));
+  const content = getAssistantContent(responseJson);
+  const reportedModel = isRecord(responseJson) && typeof responseJson.model === 'string' && responseJson.model
+    ? responseJson.model
+    : 'unknown';
+
+  return { parsed: parseAIJson(content), rawString: content, model: reportedModel };
 }
 
 function validateAIOutput<TOutput>(
@@ -145,33 +201,66 @@ function validateAIOutput<TOutput>(
   return result.data;
 }
 
-async function runStructuredAI<TOutput>({
+type StructuredAIResult<TOutput extends WithAiSource> = {
+  output: TOutput;
+  rawString: string | null;
+  model: string;
+  durationMs: number;
+};
+
+async function runStructuredAI<TOutput extends WithAiSource>({
   taskName,
   prompt,
   temperature,
   schema,
   fallback,
-}: StructuredAIRequest<TOutput>): Promise<TOutput> {
+}: StructuredAIRequest<TOutput>): Promise<StructuredAIResult<TOutput>> {
+  const startMs = Date.now();
+
   if (isMockMode()) {
-    return validateAIOutput(schema, fallback, `${taskName}_MOCK`);
+    console.warn(`[MOCK] ${taskName} -- AI_MOCK_MODE=true,使用 fallback 输出`);
+    const validated = validateAIOutput(
+      schema,
+      { ...fallback, aiSource: 'mock' satisfies AiSource },
+      `${taskName}_MOCK`,
+    );
+    const durationMs = Date.now() - startMs;
+    console.log(JSON.stringify({ task: taskName, durationMs, aiSource: 'mock' }));
+    return { output: validated, rawString: null, model: 'mock', durationMs };
   }
 
   const prompts = [prompt, `${prompt}\n\n${RETRY_INSTRUCTION}`];
 
   for (const currentPrompt of prompts) {
     try {
-      const rawOutput = await requestOpenAICompatibleJson(currentPrompt, temperature);
-      return validateAIOutput(schema, rawOutput, taskName);
+      const result = await requestOpenAICompatibleJson(currentPrompt, temperature);
+      const enrichedOutput = isRecord(result.parsed)
+        ? { ...result.parsed, aiSource: 'live' satisfies AiSource }
+        : result.parsed;
+      const validated = validateAIOutput(schema, enrichedOutput, taskName);
+      const durationMs = Date.now() - startMs;
+      console.log(JSON.stringify({ task: taskName, durationMs, aiSource: 'live' }));
+      return { output: validated, rawString: result.rawString ?? null, model: result.model, durationMs };
     } catch (error) {
       console.error(`${taskName}_ATTEMPT_FAILED`, error);
+      if (error instanceof Error && error.message.startsWith('AI_REQUEST_TIMEOUT_')) {
+        break;
+      }
     }
   }
 
   console.error(`${taskName}_FALLBACK_USED`);
-  return validateAIOutput(schema, fallback, `${taskName}_FALLBACK`);
+  const validated = validateAIOutput(
+    schema,
+    { ...fallback, aiSource: 'fallback' satisfies AiSource },
+    `${taskName}_FALLBACK`,
+  );
+  const durationMs = Date.now() - startMs;
+  console.log(JSON.stringify({ task: taskName, durationMs, aiSource: 'fallback' }));
+  return { output: validated, rawString: null, model: 'fallback', durationMs };
 }
 
-function createGenerateEventsFallback(): GenerateEventsOutput {
+function createGenerateEventsFallback(): Omit<GenerateEventsOutput, 'aiSource'> {
   return {
     events: [
       {
@@ -221,147 +310,70 @@ function createGenerateEventsFallback(): GenerateEventsOutput {
   };
 }
 
-function createEvaluateProposalFallback(): EvaluateProposalOutput {
+function createEvaluateProposalFallback(input: EvaluateProposalInput): Omit<EvaluateProposalOutput, 'aiSource'> {
+  const involvedAlliances = [
+    ...input.proposal.mentionedAlliances,
+    ...input.events.flatMap((event) => event.involvedAlliances),
+  ];
+  const uniqueAlliances = [...new Set(involvedAlliances)].slice(0, 5);
+  const fallbackAlliances = uniqueAlliances.length
+    ? uniqueAlliances
+    : [input.alliances[0]?.allianceId ?? 'north_west'];
+  const targetEvents = input.events.slice(0, 2);
+
   return {
     proposalUnderstanding: {
-      mainGoal: '通过联合调查、透明机制和有限援助降低本回合危机外溢风险。',
-      mentionedAlliances: ['north_west', 'china', 'russia', 'middle_east', 'africa'],
-      actionTypes: ['联合调查', '军事透明', '人道援助', '多边协调'],
-      targetEvents: ['能源走廊调度系统遭受网络干扰', '边境军演通告时间窗口缩短'],
+      mainGoal: '通过有限谈判和透明机制降低本回合危机外溢风险。',
+      mentionedAlliances: fallbackAlliances,
+      actionTypes: input.proposal.actionTypes.length ? input.proposal.actionTypes : ['谈判'],
+      targetEvents: targetEvents.map((event) => event.title),
     },
-    allianceReactions: [
-      {
-        alliance: 'north_west',
+    allianceReactions: fallbackAlliances.map((alliance, index) => ({
+        alliance,
         attitude: 'ACCEPT_CONDITIONALLY',
-        reactionText: '愿意参与联合调查和透明通报，但要求俄方同步开放观察机制。',
-        reason: '提案回应军事透明诉求，但缺少对违规行动的约束。',
-        satisfactionDelta: 4,
-      },
-      {
-        alliance: 'china',
-        attitude: 'ACCEPT',
-        reactionText: '支持将 AI 与网络安全治理纳入联合调查框架。',
-        reason: '提案保留多边治理空间，也避免单边归因升级。',
-        satisfactionDelta: 5,
-      },
-      {
-        alliance: 'russia',
-        attitude: 'CONCERNED',
-        reactionText: '可以讨论热线机制，但反对把责任预设给任何一方。',
-        reason: '安全缓冲诉求没有被充分保障。',
-        satisfactionDelta: -2,
-      },
-      {
-        alliance: 'middle_east',
-        attitude: 'ACCEPT_CONDITIONALLY',
-        reactionText: '接受能源走廊中立担保，但要求限制外部军事护航规模。',
-        reason: '能源安全诉求被回应，但主权和地区平衡仍是底线。',
-        satisfactionDelta: 6,
-      },
-      {
-        alliance: 'africa',
-        attitude: 'ACCEPT',
-        reactionText: '支持粮食与人道援助快速通道，并要求资金安排明确。',
-        reason: '提案缓解粮价和人道压力，但需要实际资源承诺。',
-        satisfactionDelta: 5,
-      },
-    ],
+        reactionText: '原则上愿意谈判，但需要对等承诺和可核验安排。',
+        reason: '提案有助于降温，但执行约束仍不充分。',
+        satisfactionDelta: index === 0 ? 3 : 1,
+      })),
     aiAssessment: {
-      successProbability: 63,
-      summary: '提案有助于降低短期误判和市场恐慌，但无法一次性解决攻击归因和粮价结构问题。',
-      strengths: ['议题覆盖关键风险', '使用多边调查降低归因冲突', '兼顾人道压力'],
-      weaknesses: ['缺少强制执行机制', '对俄罗斯安全诉求回应有限', '财政来源不清晰'],
+      successProbability: 58,
+      summary: '提案能降低短期误判风险，但仍需要后续核验和执行安排。',
+      strengths: ['目标集中', '有助于恢复沟通'],
+      weaknesses: ['约束机制不足', '执行细节不清'],
       expectedImpact: {
-        globalTension: -5,
-        worldStability: 4,
-        economicPressure: -2,
-        humanitarianCrisis: -2,
-        peaceAgreement: 2,
+        globalTension: -3,
+        worldStability: 2,
+        peaceAgreement: 1,
       },
+      feasibility: 0.5,
+      escalationRisk: 0.4,
+      confidence: 0.6,
     },
-    eventResolutionForecast: [
-      {
-        eventTitle: '能源走廊调度系统遭受网络干扰',
+    eventResolutionForecast: targetEvents.map((event, index) => ({
+        eventId: event.id,
         resolutionStatus: 'PARTIALLY_RESOLVED',
-        reason: '联合调查和中立担保能缓解恐慌，但攻击来源仍需时间确认。',
-        expectedImpact: {
-          globalTension: -4,
-          economicPressure: -2,
-        },
-      },
-      {
-        eventTitle: '边境军演通告时间窗口缩短',
-        resolutionStatus: 'UNCHANGED',
-        reason: '热线机制仍需双方确认，短期内军演计划不会完全撤回。',
+        reason: index === 0
+          ? '谈判和热线机制能降低误判，但无法立即消除根本分歧。'
+          : '相关安排需要更多联盟确认，短期只能部分缓和。',
         expectedImpact: {
           globalTension: -1,
         },
-      },
-    ],
+      })),
     nextRoundRisks: [
       {
-        title: '网络攻击归因争议',
-        type: 'CYBER',
+        title: '执行核验争议',
+        type: targetEvents[0]?.type ?? 'DIPLOMACY',
         severity: 'MEDIUM',
-        description: '若调查结果被质疑，相关联盟可能互相指责并扩大网络防御行动。',
-        involvedAlliances: ['middle_east', 'north_west', 'china'],
+        description: '若谈判承诺缺少核验机制，相关联盟可能重新质疑对方诚意。',
+        involvedAlliances: fallbackAlliances.slice(0, 3),
       },
     ],
   };
 }
 
-function createRoundSettlementFallback(input: RoundSettlementInput): RoundSettlementOutput {
-  const current = input.worldState;
-
-  return {
-    round: input.round,
-    settlementTitle: '多边协调取得有限进展',
-    summary: '理事会推动了联合调查和初步透明机制，部分风险被压低，但核心分歧仍留到下一回合。',
-    metricChanges: {
-      globalTension: -5,
-      worldStability: 4,
-      economicPressure: -2,
-      humanitarianCrisis: -2,
-      peaceAgreement: 2,
-    },
-    newWorldState: {
-      globalTension: Math.max(0, current.globalTension - 5),
-      worldStability: Math.min(100, current.worldStability + 4),
-      aiRisk: current.aiRisk,
-      economicPressure: Math.max(0, current.economicPressure - 2),
-      humanitarianCrisis: Math.max(0, current.humanitarianCrisis - 2),
-      peaceAgreement: Math.min(100, current.peaceAgreement + 2),
-    },
-    eventResults: [
-      {
-        eventTitle: input.events[0]?.title ?? '本回合主要危机',
-        resolutionStatus: 'PARTIALLY_RESOLVED',
-        resultText: '危机被部分缓和，但仍有后续谈判成本。',
-        metricChanges: {
-          globalTension: -5,
-          worldStability: 3,
-        },
-      },
-    ],
-    allianceChanges: [
-      {
-        alliance: 'middle_east',
-        satisfactionDelta: 4,
-        newSatisfaction: 65,
-        newStance: '合作',
-        currentDemand: '能源走廊中立担保',
-        pressureTags: ['能源安全', '调查透明'],
-        lastReaction: '有条件支持理事会协调方案。',
-      },
-    ],
-    nextRoundWarnings: ['网络攻击归因争议仍可能引发新的外交压力。'],
-    rating: 68,
-    ratingText: '有限缓和',
-    gameStatus: 'ACTIVE',
-  };
-}
-
-export async function generateEventsWithAI(input: GenerateEventsInput): Promise<GenerateEventsOutput> {
+export async function generateEventsWithAI(
+  input: GenerateEventsInput,
+): Promise<StructuredAIResult<GenerateEventsOutput>> {
   return runStructuredAI({
     taskName: 'GENERATE_EVENTS',
     prompt: buildGenerateEventsPrompt(input),
@@ -371,22 +383,14 @@ export async function generateEventsWithAI(input: GenerateEventsInput): Promise<
   });
 }
 
-export async function evaluateProposalWithAI(input: EvaluateProposalInput): Promise<EvaluateProposalOutput> {
+export async function evaluateProposalWithAI(
+  input: EvaluateProposalInput,
+): Promise<StructuredAIResult<EvaluateProposalOutput>> {
   return runStructuredAI({
     taskName: 'EVALUATE_PROPOSAL',
     prompt: buildEvaluateProposalPrompt(input),
     temperature: 0.2,
     schema: EvaluateProposalOutputSchema,
-    fallback: createEvaluateProposalFallback(),
-  });
-}
-
-export async function settleRoundWithAI(input: RoundSettlementInput): Promise<RoundSettlementOutput> {
-  return runStructuredAI({
-    taskName: 'SETTLE_ROUND',
-    prompt: buildRoundSettlementPrompt(input),
-    temperature: 0.2,
-    schema: RoundSettlementOutputSchema,
-    fallback: createRoundSettlementFallback(input),
+    fallback: createEvaluateProposalFallback(input),
   });
 }

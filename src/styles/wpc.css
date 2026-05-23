@@ -1556,3 +1556,143 @@
     top: 118px;
   }
 }
+
+
+/* ============================================================
+ * Game Over Modal
+ * 覆盖整张 HUD，半透明遮罩 + 居中卡片，三种基调由 modifier 控制。
+ * ============================================================ */
+.wpc-game-over-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 9000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+
+.wpc-game-over {
+  position: relative;
+  min-width: 360px;
+  max-width: 440px;
+  padding: 32px 36px 28px;
+  border-radius: 12px;
+  background: rgba(12, 18, 28, 0.94);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.6);
+  color: #e8eef5;
+  font-family: inherit;
+  text-align: center;
+}
+
+.wpc-game-over::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 24px;
+  right: 24px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--wpc-game-over-accent, #6b7280);
+}
+
+.wpc-game-over--won {
+  --wpc-game-over-accent: #4ade80;
+}
+
+.wpc-game-over--won .wpc-game-over__title {
+  color: #4ade80;
+  text-shadow: 0 0 12px rgba(74, 222, 128, 0.35);
+}
+
+.wpc-game-over--lost {
+  --wpc-game-over-accent: #ef4444;
+}
+
+.wpc-game-over--lost .wpc-game-over__title {
+  color: #ef4444;
+  text-shadow: 0 0 12px rgba(239, 68, 68, 0.35);
+}
+
+.wpc-game-over--stalemate {
+  --wpc-game-over-accent: #94a3b8;
+}
+
+.wpc-game-over--stalemate .wpc-game-over__title {
+  color: #cbd5e1;
+}
+
+.wpc-game-over__title {
+  margin: 0 0 8px;
+  font-size: 28px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.wpc-game-over__subtitle {
+  margin: 0 0 24px;
+  font-size: 14px;
+  line-height: 1.6;
+  color: rgba(232, 238, 245, 0.78);
+}
+
+.wpc-game-over__stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin: 0 0 24px;
+  padding: 16px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.wpc-game-over__stats > div {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.wpc-game-over__stats dt {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(232, 238, 245, 0.55);
+}
+
+.wpc-game-over__stats dd {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  color: #f3f7fb;
+}
+
+.wpc-game-over__action {
+  width: 100%;
+  padding: 12px 16px;
+  border-radius: 8px;
+  border: 1px solid var(--wpc-game-over-accent, #6b7280);
+  background: rgba(255, 255, 255, 0.04);
+  color: #f3f7fb;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.15s ease;
+}
+
+.wpc-game-over__action:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.wpc-game-over__action:active {
+  transform: translateY(1px);
+}
+
+.wpc-game-over__action:focus-visible {
+  outline: 2px solid var(--wpc-game-over-accent, #6b7280);
+  outline-offset: 2px;
+}

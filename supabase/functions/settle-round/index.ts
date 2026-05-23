@@ -1,4 +1,5 @@
-import { EvaluateProposalOutputSchema } from '../_shared/aiSchemas.ts';
+// AI 仅负责评估（submit-proposal 阶段），结算由规则引擎执行，不调用 AI
+import { EvaluateProposalOutputSchema, type AiSource } from '../_shared/aiSchemas.ts';
 import { handleOptions } from '../_shared/cors.ts';
 import { errorResponse, successResponse } from '../_shared/response.ts';
 import {
@@ -99,6 +100,7 @@ type SettlementRow = {
 
 type SettleRoundResponse = {
   settlement: RoundSettlement;
+  aiSource: AiSource;
 };
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -240,7 +242,7 @@ function findForecastForEvent(
   event: RoundEventRow,
   adjudication: EvaluateProposalOutput,
 ): EvaluateProposalOutput['eventResolutionForecast'][number] | undefined {
-  return adjudication.eventResolutionForecast.find((forecast) => forecast.eventTitle === event.title);
+  return adjudication.eventResolutionForecast.find((forecast) => forecast.eventId === event.id);
 }
 
 function buildEventResults(events: RoundEventRow[], adjudication: EvaluateProposalOutput): RoundSettlement['eventResults'] {
@@ -418,6 +420,7 @@ Deno.serve(async (request) => {
   if (existingSettlement) {
     return successResponse(request, {
       settlement: mapSettlement(existingSettlement, body.roundNumber),
+      aiSource: 'live',
     } satisfies SettleRoundResponse);
   }
 
@@ -517,103 +520,67 @@ Deno.serve(async (request) => {
   const ratingText = getRatingText(rating, gameStatus);
   const summary = adjudication.aiAssessment.summary;
 
-  const { data: settlementRow, error: insertSettlementError } = await supabase
-    .from('settlements')
-    .insert({
-      game_id: game.id,
-      round_id: round.id,
-      adjudication_id: adjudicationResult.data.id,
-      metric_changes: metricChanges,
-      new_world_state: newWorldState,
-      event_results: eventResults,
-      alliance_changes: allianceChanges,
-      next_round_warnings: nextRoundWarnings,
-      rating: String(rating),
-      rating_text: ratingText,
-      summary,
-      game_status_after: gameStatus,
-    })
-    .select(SETTLEMENT_SELECT)
-    .returns<SettlementRow[]>()
-    .single();
-
-  if (insertSettlementError || !settlementRow) {
-    console.error('SETTLE_ROUND_INSERT_SETTLEMENT_FAILED', insertSettlementError);
-    return errorResponse(request, 'SETTLE_ROUND_FAILED', '保存回合结算失败。', 500);
-  }
-
-  for (const change of allianceChanges) {
+  const allianceChangesPayload = allianceChanges.map((change) => {
     const reaction = adjudication.allianceReactions.find((item) => {
       const state = allianceStatesResult.data?.find((row) => row.alliance_id === change.allianceId);
       return state ? findAllianceState(item.alliance, [state])?.alliance_id === change.allianceId : false;
     });
 
-    const { error: updateAllianceError } = await supabase
-      .from('game_alliance_states')
-      .update({
-        satisfaction: change.newSatisfaction,
-        stance: change.stance,
-        last_reaction: reaction?.reactionText ?? null,
-      })
-      .eq('game_id', game.id)
-      .eq('alliance_id', change.allianceId);
+    return {
+      alliance_id: change.allianceId,
+      new_satisfaction: change.newSatisfaction,
+      stance: change.stance,
+      last_reaction: reaction?.reactionText ?? null,
+    };
+  });
 
-    if (updateAllianceError) {
-      console.error('SETTLE_ROUND_UPDATE_ALLIANCE_FAILED', updateAllianceError);
-      return errorResponse(request, 'SETTLE_ROUND_FAILED', '更新联盟状态失败。', 500);
-    }
+  const eventResultsPayload = eventResults.map((eventResult) => ({
+    event_id: eventResult.eventId,
+    resolution_status: eventResult.resolutionStatus,
+    summary: eventResult.summary,
+  }));
+
+  const { data: rpcData, error: rpcError } = await supabase.rpc('settle_round_v1', {
+    p_game_id: game.id,
+    p_round_number: body.roundNumber,
+    p_metric_changes: metricChanges,
+    p_new_world_state: newWorldState,
+    p_event_results: eventResultsPayload,
+    p_alliance_changes: allianceChangesPayload,
+    p_next_round_warnings: nextRoundWarnings,
+    p_rating: rating,
+    p_rating_text: ratingText,
+    p_summary: summary,
+    p_game_status: gameStatus,
+    p_adjudication_id: adjudicationResult.data.id,
+  });
+
+  if (rpcError) {
+    console.error('SETTLE_ROUND_RPC_FAILED', rpcError);
+    return errorResponse(request, 'SETTLE_ROUND_FAILED', rpcError.message, 500);
   }
 
-  for (const eventResult of eventResults) {
-    const { error: updateEventError } = await supabase
-      .from('round_events')
-      .update({
-        resolution_status: eventResult.resolutionStatus,
-        result_text: eventResult.summary,
-      })
-      .eq('id', eventResult.eventId);
+  const settlementId = (rpcData as { settlement_id?: string } | null)?.settlement_id;
 
-    if (updateEventError) {
-      console.error('SETTLE_ROUND_UPDATE_EVENT_FAILED', updateEventError);
-      return errorResponse(request, 'SETTLE_ROUND_FAILED', '更新事件结算状态失败。', 500);
-    }
+  if (!settlementId) {
+    console.error('SETTLE_ROUND_RPC_MISSING_ID', rpcData);
+    return errorResponse(request, 'SETTLE_ROUND_FAILED', '结算 RPC 未返回结算 ID。', 500);
   }
 
-  const { error: updateRoundError } = await supabase
-    .from('rounds')
-    .update({
-      stage: 'ROUND_SETTLEMENT',
-      ending_world_state: newWorldState,
-      settled_at: new Date().toISOString(),
-    })
-    .eq('id', round.id);
+  const { data: settlementRow, error: readSettlementError } = await supabase
+    .from('settlements')
+    .select(SETTLEMENT_SELECT)
+    .eq('id', settlementId)
+    .returns<SettlementRow[]>()
+    .single();
 
-  if (updateRoundError) {
-    console.error('SETTLE_ROUND_UPDATE_ROUND_FAILED', updateRoundError);
-    return errorResponse(request, 'SETTLE_ROUND_FAILED', '更新回合结算状态失败。', 500);
-  }
-
-  const { error: updateGameError } = await supabase
-    .from('game_sessions')
-    .update({
-      global_tension: newWorldState.globalTension,
-      world_stability: newWorldState.worldStability,
-      ai_risk: newWorldState.aiRisk,
-      economic_pressure: newWorldState.economicPressure,
-      humanitarian_crisis: newWorldState.humanitarianCrisis,
-      peace_agreement: newWorldState.peaceAgreement,
-      status: gameStatus,
-      current_stage: 'ROUND_SETTLEMENT',
-      completed_at: gameStatus === 'ACTIVE' ? null : new Date().toISOString(),
-    })
-    .eq('id', game.id);
-
-  if (updateGameError) {
-    console.error('SETTLE_ROUND_UPDATE_GAME_FAILED', updateGameError);
-    return errorResponse(request, 'SETTLE_ROUND_FAILED', '更新游戏结算状态失败。', 500);
+  if (readSettlementError || !settlementRow) {
+    console.error('SETTLE_ROUND_READ_SETTLEMENT_FAILED', readSettlementError);
+    return errorResponse(request, 'SETTLE_ROUND_FAILED', '读取已写入的结算失败。', 500);
   }
 
   return successResponse(request, {
     settlement: mapSettlement(settlementRow, body.roundNumber),
+    aiSource: adjudication.aiSource,
   } satisfies SettleRoundResponse);
 });
