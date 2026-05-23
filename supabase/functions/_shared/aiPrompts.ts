@@ -1,7 +1,7 @@
 import type { AllianceState, DiplomaticProposal, RoundEvent, WorldState } from './types.ts';
 
 /** Prompt 模板版本号。每次对 build*Prompt 函数做实质改动时手动 bump，便于事后追溯调用记录。 */
-export const PROMPT_VERSION = 'v1.0';
+export const PROMPT_VERSION = 'v1.1';
 
 /**
  * 玩家提案文本预处理：剥零宽字符、压缩连续空白、截断到 1500 字符上限、去首尾空白。
@@ -76,8 +76,12 @@ const METRIC_CHANGE_KEYS = [
 
 export function buildGenerateEventsPrompt(input: GenerateEventsPromptInput): string {
   return [
-    '任务：生成当前回合的随机世界事件。',
-    '速度优先：固定生成 exactly 3 个事件。',
+    '任务：为当前回合推送 AI 生成的可能世界事件。',
+    '先在内部构思至少 10 个可能发生的事件候选，覆盖军事、能源、网络、AI、粮食、难民、经济、外交、供应链等不同风险线。',
+    '不要输出候选池，只从候选池中选择最符合当前 worldState、联盟诉求、历史摘要和回合数的 exactly 3 个事件输出。',
+    '三个事件之间必须有主题差异，不能都集中在同一联盟或同一风险类型。',
+    '每个事件要像“本回合推送”而不是长期背景设定：有明确触发点、涉及方、短期影响和未解决后果。',
+    '事件应随回合推进升级或转向：早期以摩擦和预警为主，中期出现连锁危机，后期出现框架机会或高压失控风险。',
     '每个事件只保留必要信息，避免长段叙事。',
     'type 只能是：MILITARY, ENERGY, CYBER, AI, FOOD, REFUGEE, ECONOMY, DIPLOMACY, SUPPLY_CHAIN。',
     'severity 只能是：HIGH, MEDIUM, LOW, OPPORTUNITY。',
