@@ -6,6 +6,10 @@
 
 当前项目不是 Next.js 项目，不使用 `app/api`。前端是 Vite，后端使用 Supabase Postgres + Supabase Edge Functions。
 
+## 在线体验
+
+已部署项目地址：<https://peace.ccchhxx.top>
+
 ## 核心玩法
 
 一局游戏最多 20 回合。
