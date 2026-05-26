@@ -1,10 +1,11 @@
-import { type CSSProperties, type KeyboardEvent, useEffect, useMemo, useState } from 'react';
+import { type CSSProperties, type KeyboardEvent, useEffect, useMemo, useRef, useState } from 'react';
 import type { GameStatus, MetricChanges } from '../../contracts/game';
 import {
   councilAlliances,
   councilStages,
   type AllianceProfile,
 } from '../../data/worldPeaceCouncil';
+import { localizeAlliances, localizeStage, useLanguage } from '../../lib/i18n';
 
 type ImpactTone = 'green' | 'neutral' | 'red';
 type MetricChangeKey = keyof Pick<MetricChanges, 'aiRisk' | 'economicPressure' | 'globalTension' | 'worldStability'>;
@@ -19,6 +20,11 @@ type BottomCommandPanelProps = {
   metricChanges?: MetricChanges | null;
   statusMessage?: string;
   submittedProposal: string;
+  /**
+   * 跨组件"插入动作词"通知。每次 nonce 递增视为一次新的插入请求；
+   * 通过 nonce 而非 text 触发，避免连续点击同一动作时被 React 去重忽略。
+   */
+  pendingActionInsert?: { text: string; nonce: number } | null;
   onAdvanceStage: () => void | Promise<void>;
   onSubmitProposal: (proposal: string) => void | Promise<void>;
 };
@@ -31,13 +37,13 @@ type MentionState = {
 
 const roundMetricChangeItems: Array<{
   key: MetricChangeKey;
-  label: string;
+  label: { zh: string; en: string };
   lowerIsBetter: boolean;
 }> = [
-  { key: 'globalTension', label: '全球紧张度', lowerIsBetter: true },
-  { key: 'worldStability', label: '世界稳定度', lowerIsBetter: false },
-  { key: 'aiRisk', label: 'AI 风险', lowerIsBetter: true },
-  { key: 'economicPressure', label: '经济压力', lowerIsBetter: true },
+  { key: 'globalTension', label: { zh: '全球紧张度', en: 'Global Tension' }, lowerIsBetter: true },
+  { key: 'worldStability', label: { zh: '世界稳定度', en: 'World Stability' }, lowerIsBetter: false },
+  { key: 'aiRisk', label: { zh: 'AI 风险', en: 'AI Risk' }, lowerIsBetter: true },
+  { key: 'economicPressure', label: { zh: '经济压力', en: 'Economic Pressure' }, lowerIsBetter: true },
 ];
 
 const baseStageGuidance = {
@@ -48,6 +54,14 @@ const baseStageGuidance = {
   settlement: '回合结算已完成，所有提案已处理，等待下一回合开始。',
 };
 
+const baseStageGuidanceEn = {
+  events: 'This stage generates random AI events; proposals are disabled.',
+  overview: 'Complete the situation review before entering the proposal stage.',
+  proposal: 'Enter a diplomatic proposal. Use @ to quickly mention alliances.',
+  adjudication: 'Proposal submitted. Waiting for AI ruling and alliance reactions.',
+  settlement: 'Round settlement is complete. Wait for the next round to begin.',
+};
+
 const stageButtonLabel = {
   events: '生成本回合事件',
   overview: '下一步：外交提案',
@@ -56,25 +70,35 @@ const stageButtonLabel = {
   settlement: '开始下一回合',
 };
 
+const stageButtonLabelEn = {
+  events: 'Generate Round Events',
+  overview: 'Next: Diplomatic Proposal',
+  proposal: 'Submit Proposal',
+  adjudication: 'Enter Settlement',
+  settlement: 'Start Next Round',
+};
+
 function getStageGuidance(
   stageId: keyof typeof baseStageGuidance,
   hasGame: boolean,
   hasEvents: boolean,
   hasConnectionError: boolean,
+  language: 'zh' | 'en',
+  t: (key: 'connectionFailed' | 'connectingBackend' | 'eventsReady') => string,
 ): string {
   if (!hasGame) {
     if (hasConnectionError) {
-      return '云端连接失败，请按下方提示处理后重试。';
+      return t('connectionFailed');
     }
 
-    return '正在连接云端游戏后端，必要时会创建一局新的游戏。';
+    return t('connectingBackend');
   }
 
   if (stageId === 'events' && hasEvents) {
-    return '本回合事件已生成，可进入局势总览。';
+    return t('eventsReady');
   }
 
-  return baseStageGuidance[stageId];
+  return (language === 'en' ? baseStageGuidanceEn : baseStageGuidance)[stageId];
 }
 
 function getStageButtonLabel({
@@ -83,26 +107,30 @@ function getStageButtonLabel({
   hasGame,
   hasConnectionError,
   stageId,
+  language,
+  t,
 }: {
   gameStatus: GameStatus;
   hasEvents: boolean;
   hasGame: boolean;
   hasConnectionError: boolean;
   stageId: keyof typeof stageButtonLabel;
+  language: 'zh' | 'en';
+  t: (key: 'retryConnect' | 'connectOrCreate' | 'gameEnded') => string;
 }): string {
   if (!hasGame) {
-    return hasConnectionError ? '重试连接' : '连接 / 创建游戏';
+    return hasConnectionError ? t('retryConnect') : t('connectOrCreate');
   }
 
   if (gameStatus !== 'ACTIVE' && stageId === 'settlement') {
-    return '游戏已结束';
+    return t('gameEnded');
   }
 
   if (stageId === 'events') {
-    return hasEvents ? '下一步：局势总览' : stageButtonLabel.events;
+    return hasEvents ? (language === 'en' ? 'Next: Situation Overview' : '下一步：局势总览') : (language === 'en' ? stageButtonLabelEn.events : stageButtonLabel.events);
   }
 
-  return stageButtonLabel[stageId];
+  return (language === 'en' ? stageButtonLabelEn : stageButtonLabel)[stageId];
 }
 
 function formatMetricDelta(value: number): string {
@@ -187,10 +215,12 @@ export default function BottomCommandPanel({
   metricChanges,
   statusMessage = '',
   submittedProposal,
+  pendingActionInsert,
   onAdvanceStage,
   onSubmitProposal,
 }: BottomCommandPanelProps) {
-  const activeStage = councilStages[activeStageIndex];
+  const { language, t } = useLanguage();
+  const activeStage = localizeStage(councilStages[activeStageIndex], language);
   const isProposalStage = activeStage.id === 'proposal';
   const terminalGame = gameStatus !== 'ACTIVE';
   const hasConnectionError = Boolean(errorMessage) && !hasGame;
@@ -200,8 +230,11 @@ export default function BottomCommandPanel({
     hasGame,
     hasConnectionError,
     stageId: activeStage.id as keyof typeof stageButtonLabel,
+    language,
+    t,
   });
-  const stageGuidance = getStageGuidance(activeStage.id, hasGame, hasEvents, hasConnectionError);
+  const stageGuidance = getStageGuidance(activeStage.id, hasGame, hasEvents, hasConnectionError, language, t);
+  const localizedAlliances = useMemo(() => localizeAlliances(councilAlliances, language), [language]);
   const [draft, setDraft] = useState('');
   const [activeMentionIndex, setActiveMentionIndex] = useState(0);
   const [showEstimate, setShowEstimate] = useState(false);
@@ -210,7 +243,7 @@ export default function BottomCommandPanel({
       const value = metricChanges?.[item.key] ?? 0;
 
       return {
-        label: item.label,
+        label: item.label[language],
         tone: getMetricDeltaTone(value, item.lowerIsBetter),
         value: formatMetricDelta(value),
       };
@@ -226,11 +259,11 @@ export default function BottomCommandPanel({
     const query = mentionState.query.trim().toLowerCase();
 
     if (!query) {
-      return councilAlliances;
+      return localizedAlliances;
     }
 
-    return councilAlliances.filter((alliance) => alliance.name.toLowerCase().includes(query));
-  }, [mentionState.open, mentionState.query]);
+    return localizedAlliances.filter((alliance) => alliance.name.toLowerCase().includes(query));
+  }, [localizedAlliances, mentionState.open, mentionState.query]);
 
   const showMentionMenu = isProposalStage && mentionState.open;
 
@@ -244,6 +277,23 @@ export default function BottomCommandPanel({
       setShowEstimate(false);
     }
   }, [activeStage.id]);
+
+  // 来自右栏"可用行动方式"按钮的点击：把动作词追加到 draft 末尾。
+  // 用 ref 跟踪上次处理过的 nonce，避免父组件 re-render 时重复插入。
+  // nonce-only 触发可让连续点击同一动作（同样的 text）也能多次注入。
+  const lastInsertNonceRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (!pendingActionInsert || !isProposalStage) return;
+    if (pendingActionInsert.nonce === lastInsertNonceRef.current) return;
+    lastInsertNonceRef.current = pendingActionInsert.nonce;
+
+    const text = pendingActionInsert.text;
+    setDraft((current) => {
+      const trimmed = current.trimEnd();
+      if (!trimmed) return `${text} `;
+      return `${trimmed} ${text} `;
+    });
+  }, [pendingActionInsert, isProposalStage]);
 
   const selectAlliance = (alliance: AllianceProfile) => {
     setDraft((current) => {
@@ -294,18 +344,18 @@ export default function BottomCommandPanel({
 
   const displayedValue =
     activeStage.id === 'adjudication'
-      ? submittedProposal || '未提交正式提案，系统将使用保守降温方案。'
+      ? submittedProposal || t('noProposalFallback')
       : activeStage.id === 'settlement'
-        ? '本回合已结算'
+        ? t('settledDisplay')
         : draft;
 
   return (
-    <section className={`wpc-bottom-console wpc-bottom-console--${activeStage.id}`} aria-label="外交提案控制台">
+    <section className={`wpc-bottom-console wpc-bottom-console--${activeStage.id}`} aria-label={t('proposalConsole')}>
       {showMentionMenu ? (
-        <div className="wpc-mention-menu" role="listbox" aria-label="@ 联盟自动补全">
+        <div className="wpc-mention-menu" role="listbox" aria-label={t('mentionMenu')}>
           <div className="wpc-mention-menu__title">
-            <span>选择联盟</span>
-            <strong>{filteredAlliances.length || councilAlliances.length} / 7</strong>
+            <span>{t('chooseAlliance')}</span>
+            <strong>{filteredAlliances.length || localizedAlliances.length} / 7</strong>
           </div>
           <div className="wpc-mention-menu__list">
             {filteredAlliances.length > 0 ? (
@@ -320,20 +370,20 @@ export default function BottomCommandPanel({
                 />
               ))
             ) : (
-              <div className="wpc-mention-empty">未匹配到联盟，删除 @ 后面的文字可查看完整列表。</div>
+              <div className="wpc-mention-empty">{t('mentionEmpty')}</div>
             )}
           </div>
           <div className="wpc-mention-menu__hint">
-            <span>↑↓ 选择</span>
-            <span>Enter 确认</span>
-            <span>点击插入</span>
+            <span>{t('chooseHotkey')}</span>
+            <span>{t('confirmHotkey')}</span>
+            <span>{t('clickInsert')}</span>
           </div>
         </div>
       ) : null}
 
       <div className="wpc-console-heading">
         <div>
-          <span>外交提案控制台</span>
+          <span>{t('proposalConsole')}</span>
           <strong>DIPLOMATIC PROPOSAL CONSOLE</strong>
         </div>
         <small>{stageGuidance}</small>
@@ -345,7 +395,7 @@ export default function BottomCommandPanel({
           disabled={!isProposalStage || isBusy || terminalGame || !hasGame}
           placeholder={
             isProposalStage
-              ? '输入外交提案，例如：@北美·西方联盟 @俄罗斯联邦 建立军事热线，并由 @中东·和平联盟 主持能源安全会谈'
+              ? t('proposalPlaceholder')
               : stageGuidance
           }
           onChange={(event) => setDraft(event.target.value)}
@@ -354,24 +404,14 @@ export default function BottomCommandPanel({
 
         <div className="wpc-console-actions">
           {isProposalStage ? (
-            <>
-              <button
-                type="button"
-                className="wpc-console-button wpc-console-button--ghost"
-                disabled={!draft.trim() || isBusy || terminalGame || !hasGame}
-                onClick={() => setShowEstimate(true)}
-              >
-                预估反应
-              </button>
-              <button
-                type="button"
-                className="wpc-console-button wpc-console-button--primary"
-                disabled={!draft.trim() || isBusy || terminalGame || !hasGame}
-                onClick={handleSubmit}
-              >
-                {isBusy ? '提交中...' : '提交提案'}
-              </button>
-            </>
+            <button
+              type="button"
+              className="wpc-console-button wpc-console-button--primary"
+              disabled={!draft.trim() || isBusy || terminalGame || !hasGame}
+              onClick={handleSubmit}
+            >
+              {isBusy ? t('submittingProposal') : t('submitProposal')}
+            </button>
           ) : (
             <button
               type="button"
@@ -379,7 +419,7 @@ export default function BottomCommandPanel({
               disabled={isBusy || (terminalGame && activeStage.id === 'settlement')}
               onClick={() => void onAdvanceStage()}
             >
-              {isBusy ? '同步中...' : stageActionLabel}
+              {isBusy ? t('syncing') : stageActionLabel}
             </button>
           )}
         </div>
@@ -402,7 +442,7 @@ export default function BottomCommandPanel({
           </div>
         </div>
         <div className="wpc-proposal-count">
-          本回合提案次数：<strong>{submittedProposal ? 1 : 0} / 1</strong>
+          {t('proposalCount')}：<strong>{submittedProposal ? 1 : 0} / 1</strong>
         </div>
       </div>
     </section>

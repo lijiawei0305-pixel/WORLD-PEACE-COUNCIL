@@ -1,0 +1,279 @@
+/**
+ * AuthGate 样式：复用 wpc.css 中已经定义的设计 token 与切角线、青蓝光晕。
+ * 卡片本身使用 .wpc-panel 的视觉语言但额外居中 + 限宽，保持与游戏内 HUD 同源观感。
+ */
+.wpc-auth-shell {
+  position: relative;
+  width: 100vw;
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 32px 16px;
+  color: var(--wpc-text);
+  background:
+    radial-gradient(circle at 50% 38%, rgba(16, 120, 180, 0.28), transparent 30%),
+    radial-gradient(circle at 50% 60%, rgba(15, 56, 88, 0.24), transparent 48%),
+    linear-gradient(180deg, #030817 0%, #00040b 55%, #000 100%);
+  overflow: hidden;
+}
+
+.wpc-auth-shell .space-bg {
+  z-index: 0;
+}
+
+.wpc-auth-frame {
+  position: relative;
+  z-index: 2;
+  display: grid;
+  gap: 22px;
+  width: min(420px, 100%);
+}
+
+.wpc-auth-header {
+  display: grid;
+  gap: 8px;
+  text-align: center;
+}
+
+.wpc-auth-brand {
+  justify-self: center;
+}
+
+.wpc-auth-brand .wpc-brand__copy h1 {
+  margin: 0;
+  font-size: 1.18rem;
+  letter-spacing: 0.08em;
+}
+
+.wpc-auth-brand .wpc-brand__copy span {
+  letter-spacing: 0.32em;
+}
+
+.wpc-auth-tagline {
+  margin: 0;
+  color: var(--wpc-muted);
+  font-size: 0.84rem;
+  letter-spacing: 0.04em;
+}
+
+.wpc-auth-card {
+  position: relative;
+  overflow: hidden;
+  padding: 24px 24px 22px;
+  border-radius: 14px;
+  border: 1px solid var(--wpc-line);
+  color: var(--wpc-text);
+  background:
+    linear-gradient(120deg, rgba(39, 223, 255, 0.08), transparent 24%, transparent 72%, rgba(66, 226, 127, 0.05)),
+    repeating-linear-gradient(180deg, rgba(255, 255, 255, 0.018) 0 1px, transparent 1px 4px),
+    linear-gradient(180deg, rgba(6, 24, 43, 0.94), rgba(3, 13, 26, 0.9));
+  box-shadow:
+    0 0 24px rgba(39, 223, 255, 0.18),
+    inset 0 0 24px rgba(39, 223, 255, 0.06);
+  backdrop-filter: blur(16px);
+}
+
+.wpc-auth-card::before,
+.wpc-auth-card::after {
+  position: absolute;
+  width: 22px;
+  height: 22px;
+  content: "";
+  pointer-events: none;
+}
+
+.wpc-auth-card::before {
+  top: 0;
+  left: 0;
+  border-top: 1px solid var(--wpc-cyan);
+  border-left: 1px solid var(--wpc-cyan);
+}
+
+.wpc-auth-card::after {
+  right: 0;
+  bottom: 0;
+  border-right: 1px solid rgba(39, 223, 255, 0.7);
+  border-bottom: 1px solid rgba(39, 223, 255, 0.7);
+}
+
+.wpc-auth-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  padding: 4px;
+  margin-bottom: 18px;
+  border-radius: 12px;
+  background: rgba(8, 30, 49, 0.74);
+  border: 1px solid var(--wpc-line-soft);
+}
+
+.wpc-language-switch {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 4px 4px 4px 12px;
+  margin-bottom: 12px;
+  border-radius: 12px;
+  background: rgba(8, 30, 49, 0.54);
+  border: 1px solid var(--wpc-line-soft);
+}
+
+.wpc-language-switch > span {
+  color: var(--wpc-muted);
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.wpc-language-switch > div {
+  display: flex;
+  gap: 4px;
+}
+
+.wpc-language-switch__button {
+  padding: 7px 10px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  color: var(--wpc-muted);
+  background: transparent;
+  font-size: 0.76rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+}
+
+.wpc-language-switch__button:hover {
+  color: var(--wpc-cyan);
+}
+
+.wpc-language-switch__button--active {
+  color: #04111f;
+  background: linear-gradient(135deg, #7cf6ff, var(--wpc-cyan));
+  box-shadow: 0 0 14px rgba(39, 223, 255, 0.22);
+}
+
+.wpc-auth-tab {
+  padding: 8px 0;
+  font-size: 0.86rem;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  border-radius: 8px;
+  color: var(--wpc-muted);
+  background: transparent;
+  border: 1px solid transparent;
+  transition:
+    color 160ms ease,
+    border-color 160ms ease,
+    background 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.wpc-auth-tab:hover {
+  color: var(--wpc-cyan);
+}
+
+.wpc-auth-tab--active {
+  color: #04111f;
+  background: linear-gradient(135deg, #7cf6ff, var(--wpc-cyan) 54%, var(--wpc-blue));
+  box-shadow: 0 0 16px rgba(39, 223, 255, 0.28), inset 0 0 10px rgba(255, 255, 255, 0.22);
+}
+
+.wpc-auth-form {
+  display: grid;
+  gap: 14px;
+}
+
+.wpc-auth-field {
+  display: grid;
+  gap: 6px;
+}
+
+.wpc-auth-field span {
+  font-size: 0.74rem;
+  letter-spacing: 0.18em;
+  color: var(--wpc-muted);
+  text-transform: uppercase;
+}
+
+.wpc-auth-field input {
+  padding: 11px 12px;
+  border-radius: 10px;
+  color: var(--wpc-text);
+  background: rgba(8, 30, 49, 0.74);
+  border: 1px solid rgba(39, 223, 255, 0.34);
+  outline: none;
+  transition:
+    border-color 160ms ease,
+    box-shadow 160ms ease;
+  font-size: 0.92rem;
+  letter-spacing: 0.04em;
+}
+
+.wpc-auth-field input::placeholder {
+  color: rgba(178, 207, 224, 0.42);
+}
+
+.wpc-auth-field input:focus {
+  border-color: var(--wpc-cyan);
+  box-shadow: 0 0 0 3px rgba(39, 223, 255, 0.18);
+}
+
+.wpc-auth-message {
+  margin: 0;
+  padding: 9px 12px;
+  border-radius: 10px;
+  font-size: 0.82rem;
+  letter-spacing: 0.02em;
+  line-height: 1.45;
+}
+
+.wpc-auth-message--error {
+  color: #ffd3d8;
+  background: rgba(255, 77, 94, 0.14);
+  border: 1px solid rgba(255, 77, 94, 0.42);
+}
+
+.wpc-auth-message--info {
+  color: #d8f3ff;
+  background: rgba(39, 223, 255, 0.1);
+  border: 1px solid rgba(39, 223, 255, 0.36);
+}
+
+.wpc-auth-submit {
+  margin-top: 4px;
+  padding: 12px 16px;
+  font-size: 0.94rem;
+  letter-spacing: 0.16em;
+}
+
+.wpc-auth-hint {
+  margin: 0;
+  font-size: 0.82rem;
+  text-align: center;
+  color: var(--wpc-muted);
+}
+
+.wpc-auth-linklike {
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--wpc-cyan);
+  font: inherit;
+  letter-spacing: 0.04em;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.wpc-auth-linklike:hover {
+  color: #7cf6ff;
+}
+
+.wpc-auth-footnote {
+  margin: 0;
+  font-size: 0.72rem;
+  text-align: center;
+  letter-spacing: 0.06em;
+  color: rgba(178, 207, 224, 0.6);
+}

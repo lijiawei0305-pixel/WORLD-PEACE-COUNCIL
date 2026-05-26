@@ -6,5 +6,6 @@ tsconfig.tsbuildinfo
 .env
 .env.*
 artifacts/
+.runtime/
 supabase/.branches/
 supabase/.temp/

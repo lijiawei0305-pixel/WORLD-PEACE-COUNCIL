@@ -18,3 +18,28 @@ port = 54323
 [inbucket]
 enabled = true
 port = 54324
+
+# 云端 Auth 配置：Site URL 决定 Supabase 发出的邮件验证 / 重置密码链接的回跳域名。
+# Additional Redirect URLs 是允许 redirectTo / 邮件链接命中的合法返回地址。
+# 默认 Site URL 是 http://localhost:3000，与生产域名不一致会导致玩家点链接落到 localhost。
+[auth]
+enabled = true
+site_url = "https://peace.ccchhxx.top"
+additional_redirect_urls = [
+  "https://peace.ccchhxx.top",
+  "https://peace.ccchhxx.top/**",
+  "http://localhost:5173",
+  "http://localhost:5173/**",
+  "http://127.0.0.1:5173",
+  "http://127.0.0.1:5173/**",
+]
+jwt_expiry = 3600
+enable_signup = true
+
+[auth.email]
+enable_signup = true
+double_confirm_changes = true
+# 关闭邮箱验证：注册成功后 Supabase 直接返回 session，AuthGate 立即进入游戏。
+# 注：Supabase 自带 SMTP 有严格限流（每小时几封），关闭可避免玩家收不到激活邮件。
+# 想要正式启用邮箱验证时，先在 Dashboard 配置自定义 SMTP（Resend/SendGrid 等），再把这里改回 true 并 push。
+enable_confirmations = false

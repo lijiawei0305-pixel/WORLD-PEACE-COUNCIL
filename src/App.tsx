@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import AuthGate from './components/auth/AuthGate';
 import DiplomacyGlobe from './components/globe/DiplomacyGlobe';
 import GameOverModal, { type GameOverStatus } from './components/GameOverModal';
 import BottomCommandPanel from './components/hud/BottomCommandPanel';
@@ -6,7 +7,6 @@ import LeftPanels from './components/hud/LeftPanels';
 import RightPanels from './components/hud/RightPanels';
 import TopBar from './components/hud/TopBar';
 import { useGameSession } from './hooks/useGameSession';
-import { getSupabaseClient } from './lib/apiClient';
 import {
   mapAllianceStatesToProfiles,
   mapRoundEventsToTurnEvents,
@@ -15,16 +15,12 @@ import {
 } from './lib/snapshotMappers';
 import type { GameSnapshot, GameStatus } from './contracts/game';
 import type { GlobeSelection } from './data/worldPeaceCouncil';
+import { formatRoundDate, localizeText, useLanguage } from './lib/i18n';
 import './styles/app.css';
 import './styles/globe.css';
 import './styles/hud.css';
 import './styles/wpc.css';
-
-function getRoundDate(round: number): string {
-  const date = new Date(Date.UTC(2038, 0, 18));
-  date.setUTCMonth(date.getUTCMonth() + round - 1);
-  return `${date.getUTCFullYear()}年${date.getUTCMonth() + 1}月${date.getUTCDate()}日`;
-}
+import './styles/auth.css';
 
 /**
  * 把后端 game.status 映射到 GameOverModal 的 props 枚举：
@@ -41,55 +37,29 @@ function toGameOverStatus(status: GameStatus | undefined): GameOverStatus | null
 }
 
 /** 失败时尽量给出具体原因。当前规则下 FAILED 唯一触发条件是 globalTension >= 100。 */
-function buildLostSubtitle(snapshot: GameSnapshot | null): string | undefined {
+function buildLostSubtitle(snapshot: GameSnapshot | null, lostText: string): string | undefined {
   if (!snapshot) return undefined;
   if (snapshot.worldState.globalTension >= 100) {
-    return '全球紧张度突破红线，世界秩序崩溃。';
+    return lostText;
   }
   return undefined;
 }
 
-function LoginGate({ onAuthenticated }: { onAuthenticated: () => void }) {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [errorText, setErrorText] = useState('');
-  const [isSubmitting, setIsSubmitting] = useState(false);
-
-  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    if (!email || !password || isSubmitting) return;
-
-    setIsSubmitting(true);
-    setErrorText('');
-
-    const { data, error } = await getSupabaseClient().auth.signInWithPassword({ email, password });
-    if (error || !data.session) {
-      setErrorText(error?.message ?? '登录失败，请检查邮箱或密码。');
-      setIsSubmitting(false);
-      return;
-    }
-
-    setIsSubmitting(false);
-    onAuthenticated();
-  };
-
-  return (
-    <main>
-      <form onSubmit={handleSubmit}>
-        <h1>登录</h1>
-        <label>邮箱<input type="email" autoComplete="email" required value={email} onChange={(e) => setEmail(e.target.value)} /></label>
-        <label>密码<input type="password" autoComplete="current-password" required value={password} onChange={(e) => setPassword(e.target.value)} /></label>
-        <button type="submit" disabled={isSubmitting || !email || !password}>{isSubmitting ? '登录中...' : '登录'}</button>
-        {errorText ? <p role="alert">{errorText}</p> : null}
-      </form>
-    </main>
-  );
-}
 
 export default function App() {
+  const { language, t } = useLanguage();
   const { snapshot, roundMeta, lastMetricChanges, isBusy, statusMessage, errorMessage, needsLogin, actions } =
     useGameSession();
   const [selectedLocation, setSelectedLocation] = useState<GlobeSelection>();
+  /**
+   * 右栏"可用行动方式"按钮 → 底部 textarea 的桥接 state。
+   * nonce 单调递增，每次点击都触发 BottomCommandPanel 的插入 effect，
+   * 即使连续点同一动作也不被 React 状态相等性优化跳过。
+   */
+  const [pendingActionInsert, setPendingActionInsert] = useState<{ text: string; nonce: number } | null>(null);
+  const handleInsertAction = useCallback((text: string) => {
+    setPendingActionInsert((prev) => ({ text, nonce: (prev?.nonce ?? 0) + 1 }));
+  }, []);
 
   // 推进到新回合时，snapshot 切换会让 selectedLocation 失去语义，自动清空一次
   useEffect(() => {
@@ -107,14 +77,27 @@ export default function App() {
   const activeStageIndex = snapshot ? stageIndexByRoundStage[snapshot.game.stage] : 0;
   const submittedProposal = snapshot?.proposal?.proposalText ?? '';
   const currentRoundMeta = roundMeta?.roundNumber === round ? roundMeta : null;
-  const metrics = useMemo(() => mapWorldStateToMetrics(snapshot?.worldState), [snapshot?.worldState]);
-  const alliances = useMemo(() => mapAllianceStatesToProfiles(snapshot?.alliances), [snapshot?.alliances]);
-  const events = useMemo(() => mapRoundEventsToTurnEvents(snapshot?.events), [snapshot?.events]);
+  const metrics = useMemo(() => mapWorldStateToMetrics(snapshot?.worldState, language), [snapshot?.worldState, language]);
+  const alliances = useMemo(() => mapAllianceStatesToProfiles(snapshot?.alliances, language), [snapshot?.alliances, language]);
+  const events = useMemo(() => mapRoundEventsToTurnEvents(snapshot?.events, language), [snapshot?.events, language]);
+  // 收集本回合事件涉及的国家 ISO A3 集合，传给地球渲染层做高亮发光。
+  // 结算阶段（事件已 RESOLVED/PARTIALLY_RESOLVED/WORSENED）后仍保留亮起，让玩家在结算视图里能回看事件位置。
+  const highlightedCountries = useMemo(() => {
+    if (!snapshot?.events?.length) return [];
+    const set = new Set<string>();
+    for (const event of snapshot.events) {
+      for (const iso of event.involvedCountries ?? []) {
+        const normalized = iso.trim().toUpperCase();
+        if (normalized) set.add(normalized);
+      }
+    }
+    return Array.from(set);
+  }, [snapshot?.events]);
   const displayedMetricChanges = snapshot?.settlement?.metricChanges ?? lastMetricChanges;
   const gameOverStatus = toGameOverStatus(snapshot?.game.status);
 
   if (needsLogin) {
-    return <LoginGate onAuthenticated={actions.onLoginSuccess} />;
+    return <AuthGate onAuthenticated={actions.onLoginSuccess} />;
   }
 
   return (
@@ -123,6 +106,7 @@ export default function App() {
       <DiplomacyGlobe
         selectedCountry={selectedLocation?.isoA3 ?? ''}
         selectedLocation={selectedLocation}
+        highlightedCountries={highlightedCountries}
         onLocationSelect={handleLocationSelect}
       />
 
@@ -131,16 +115,17 @@ export default function App() {
           activeStageIndex={activeStageIndex}
           round={round}
           maxRounds={maxRounds}
-          date={getRoundDate(round)}
+          date={formatRoundDate(round, language)}
           gameStatus={snapshot?.game.status}
           isBusy={isBusy}
           onNewGame={actions.startNewGame}
+          onSignOut={actions.signOut}
           worldState={snapshot?.worldState}
         />
         <LeftPanels
           activeStageIndex={activeStageIndex}
           alliances={alliances}
-          briefing={currentRoundMeta?.briefing}
+          briefing={localizeText(currentRoundMeta?.briefing, language)}
           eventCount={snapshot?.events.length ?? 0}
           gameStatus={snapshot?.game.status}
           metrics={metrics}
@@ -151,9 +136,10 @@ export default function App() {
           adjudication={snapshot?.adjudication}
           alliances={alliances}
           events={events}
-          priorityIssue={currentRoundMeta?.priorityIssue}
+          priorityIssue={localizeText(currentRoundMeta?.priorityIssue, language)}
           settlement={snapshot?.settlement}
           submittedProposal={submittedProposal}
+          onInsertAction={handleInsertAction}
         />
         <BottomCommandPanel
           activeStageIndex={activeStageIndex}
@@ -165,6 +151,7 @@ export default function App() {
           metricChanges={displayedMetricChanges}
           statusMessage={statusMessage}
           submittedProposal={submittedProposal}
+          pendingActionInsert={pendingActionInsert}
           onAdvanceStage={actions.advance}
           onSubmitProposal={actions.submitProposal}
         />
@@ -176,7 +163,7 @@ export default function App() {
           finalRound={snapshot.game.currentRound}
           peaceScore={snapshot.worldState.peaceAgreement}
           onNewGame={actions.startNewGame}
-          subtitleOverride={gameOverStatus === 'LOST' ? buildLostSubtitle(snapshot) : undefined}
+          subtitleOverride={gameOverStatus === 'LOST' ? buildLostSubtitle(snapshot, t('lostSubtitle')) : undefined}
         />
       ) : null}
     </main>

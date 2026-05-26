@@ -6,6 +6,7 @@
  * App.tsx 在传入前做映射（FAILED → LOST、COLD_PEACE / ABANDONED → STALEMATE）。
  */
 import type { ReactNode } from 'react';
+import { useLanguage } from '../lib/i18n';
 
 export type GameOverStatus = 'WON' | 'LOST' | 'STALEMATE';
 
@@ -53,8 +54,15 @@ export default function GameOverModal({
   onNewGame,
   subtitleOverride,
 }: GameOverModalProps) {
+  const { language, t } = useLanguage();
   const copy = TONE_COPY[status];
-  const subtitle = subtitleOverride ?? copy.defaultSubtitle(finalRound);
+  const localizedTitle = status === 'WON' ? t('wonTitle') : status === 'LOST' ? t('lostTitle') : t('stalemateTitle');
+  const localizedSubtitle = status === 'WON'
+    ? t('wonSubtitle', { round: finalRound })
+    : status === 'LOST'
+      ? t('lostSubtitle')
+      : t('stalemateSubtitle');
+  const subtitle = subtitleOverride ?? (language === 'en' ? localizedSubtitle : copy.defaultSubtitle(finalRound));
 
   return (
     <div
@@ -65,23 +73,23 @@ export default function GameOverModal({
     >
       <div className={`wpc-game-over wpc-game-over--${copy.modifier}`}>
         <h2 id="wpc-game-over-title" className="wpc-game-over__title">
-          {copy.title}
+          {language === 'en' ? localizedTitle : copy.title}
         </h2>
         <p className="wpc-game-over__subtitle">{subtitle}</p>
 
         <dl className="wpc-game-over__stats">
           <div>
-            <dt>最终回合</dt>
+            <dt>{t('finalRound')}</dt>
             <dd>{finalRound} / 20</dd>
           </div>
           <div>
-            <dt>{copy.scoreLabel}</dt>
+            <dt>{language === 'en' ? t('peaceProgress') : copy.scoreLabel}</dt>
             <dd>{peaceScore} / 100</dd>
           </div>
         </dl>
 
         <button type="button" className="wpc-game-over__action" onClick={onNewGame}>
-          开始新局
+          {t('startNewGame')}
         </button>
       </div>
     </div>

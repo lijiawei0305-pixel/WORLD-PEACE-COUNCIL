@@ -40,11 +40,14 @@ type GameSessionRow = {
   economic_pressure: number;
   humanitarian_crisis: number;
   peace_agreement: number;
+  history_summary: string | null;
 };
 
 type RoundRow = {
   id: string;
   round_number: number;
+  starting_world_state: WorldState;
+  after_events_world_state: WorldState | null;
 };
 
 type RoundEventRow = {
@@ -54,6 +57,7 @@ type RoundEventRow = {
   severity: EventSeverity;
   description: string;
   involved_alliances: string[];
+  involved_countries: string[];
   potential_impact: MetricChanges;
   recommended_actions: string[];
   unresolved_consequence: string | null;
@@ -116,7 +120,8 @@ const GAME_SELECT = `
   ai_risk,
   economic_pressure,
   humanitarian_crisis,
-  peace_agreement
+  peace_agreement,
+  history_summary
 `;
 
 const ROUND_EVENT_SELECT = `
@@ -126,6 +131,7 @@ const ROUND_EVENT_SELECT = `
   severity,
   description,
   involved_alliances,
+  involved_countries,
   potential_impact,
   recommended_actions,
   unresolved_consequence,
@@ -178,6 +184,30 @@ async function parseRequestBody(request: Request): Promise<SettleRoundRequest | 
     gameId: body.gameId,
     roundNumber: body.roundNumber,
   };
+}
+
+const SETTLEMENT_METRIC_KEYS: Array<keyof WorldState> = [
+  'globalTension',
+  'worldStability',
+  'aiRisk',
+  'economicPressure',
+  'humanitarianCrisis',
+  'peaceAgreement',
+];
+
+/**
+ * 计算"本回合从 starting_world_state 到结算后 newWorldState 的总变化"，
+ * 涵盖事件本身造成的世界状态变动 + AI 对玩家提案给出的 expectedImpact。
+ * 这样 UI 上展示给玩家的回合 metric delta 与顶部世界状态的绝对值能够对得上。
+ */
+function computeRoundDelta(starting: WorldState, ending: WorldState): MetricChanges {
+  const delta: MetricChanges = {};
+
+  for (const key of SETTLEMENT_METRIC_KEYS) {
+    delta[key] = ending[key] - starting[key];
+  }
+
+  return delta;
 }
 
 function worldStateFromGame(game: GameSessionRow): WorldState {
@@ -335,6 +365,46 @@ function getRatingText(rating: number, gameStatus: GameStatus): string {
   return '局势恶化';
 }
 
+/**
+ * 构造单回合历史摘要条目，喂给下一回合的 generate-events / submit-proposal 提示词。
+ * 设计：单条 ≤ 130 字，避免膨胀 token。
+ *
+ * 字段精度足以让 AI 识别"上一回合做了什么、效果如何"：
+ *   - 事件 type 列表（只取前 3 个 type）
+ *   - proposalUnderstanding.mainGoal（已是 ≤ 60 字 AI 摘要）
+ *   - rating + ratingText
+ *   - 关键 metric delta（只保留最显著的紧张度和和平度变化）
+ */
+function buildHistoryEntry(
+  roundNumber: number,
+  events: Array<{ type: EventType }>,
+  adjudication: EvaluateProposalOutput,
+  metricChanges: MetricChanges,
+  rating: number,
+  ratingText: string,
+): string {
+  const eventTags = events.slice(0, 3).map((event) => event.type).join('/');
+  const goal = adjudication.proposalUnderstanding.mainGoal.slice(0, 30);
+  const fmt = (n: number | undefined): string => {
+    if (typeof n !== 'number' || n === 0) return '0';
+    return n > 0 ? `+${n}` : `${n}`;
+  };
+  const tension = fmt(metricChanges.globalTension);
+  const peace = fmt(metricChanges.peaceAgreement);
+
+  return `第${roundNumber}回合｜事件[${eventTags}]｜提案:${goal}｜${rating}分(${ratingText})｜紧张${tension},和平${peace}`;
+}
+
+/**
+ * 把新条目追加到现有 history_summary，并按行裁剪到最近 N 个回合。
+ * 用换行分隔便于喂给 prompt 时人类可读、token-friendly。
+ */
+function appendHistorySummary(existing: string, newEntry: string, maxRounds = 5): string {
+  const lines = (existing ?? '').split('\n').map((line) => line.trim()).filter(Boolean);
+  lines.push(newEntry);
+  return lines.slice(-maxRounds).join('\n');
+}
+
 Deno.serve(async (request) => {
   const optionsResponse = handleOptions(request);
 
@@ -392,7 +462,7 @@ Deno.serve(async (request) => {
 
   const { data: round, error: roundError } = await supabase
     .from('rounds')
-    .select('id, round_number')
+    .select('id, round_number, starting_world_state, after_events_world_state')
     .eq('game_id', game.id)
     .eq('round_number', body.roundNumber)
     .returns<RoundRow[]>()
@@ -506,17 +576,27 @@ Deno.serve(async (request) => {
   }
 
   const adjudication = adjudicationParse.data;
-  const currentWorldState = worldStateFromGame(game);
-  const metricChanges = clampMetricChanges(adjudication.aiAssessment.expectedImpact);
-  const proposedWorldState = applyMetricChanges(currentWorldState, metricChanges);
-  const newWorldState = currentWorldState.globalTension >= 100
+  // 自 migration 007 起：generate_events_v1 不再立即把事件影响写入 game_sessions。
+  // 因此 worldStateFromGame(game) 在 RANDOM_EVENT/SITUATION_OVERVIEW/DIPLOMATIC_PROPOSAL 阶段
+  // 仍然等于 round.starting_world_state。结算时需要主动把"事件影响后的世界状态"作为提案的应用基准，
+  // 否则事件本身就再也不会落到最终世界指标里。
+  // 兼容老局：如果 after_events_world_state 为空（极旧的 round 行），降级为 game 表里的当前世界状态。
+  const startingWorldState = round.starting_world_state;
+  const afterEventsWorldState = round.after_events_world_state ?? worldStateFromGame(game);
+  const proposalImpact = clampMetricChanges(adjudication.aiAssessment.expectedImpact);
+  const proposedWorldState = applyMetricChanges(afterEventsWorldState, proposalImpact);
+  const newWorldState = afterEventsWorldState.globalTension >= 100
     ? { ...proposedWorldState, globalTension: 100 }
     : proposedWorldState;
+  // metricChanges 展示给玩家时使用"本回合从 starting_world_state 到结算后 newWorldState 的总差值"，
+  // 这样底部回合变化卡片与顶部世界指标的绝对值能够吻合（含事件影响 + 提案影响）。
+  const metricChanges = computeRoundDelta(startingWorldState, newWorldState);
   const gameStatus = getGameStatus(newWorldState, game.current_round);
   const eventResults = buildEventResults(eventsResult.data, adjudication);
   const allianceChanges = buildAllianceChanges(allianceStatesResult.data, adjudication);
   const nextRoundWarnings = buildNextRoundWarnings(adjudication);
-  const rating = getRating(metricChanges, gameStatus);
+  // rating 仍按"提案影响"评估玩家本回合的策略表现，与事件本身的 delta 解耦。
+  const rating = getRating(proposalImpact, gameStatus);
   const ratingText = getRatingText(rating, gameStatus);
   const summary = adjudication.aiAssessment.summary;
 
@@ -577,6 +657,32 @@ Deno.serve(async (request) => {
   if (readSettlementError || !settlementRow) {
     console.error('SETTLE_ROUND_READ_SETTLEMENT_FAILED', readSettlementError);
     return errorResponse(request, 'SETTLE_ROUND_FAILED', '读取已写入的结算失败。', 500);
+  }
+
+  // 回填 history_summary：把本回合的简要摘要追加进 game_sessions.history_summary，
+  // 让下一回合的 generate-events / submit-proposal 能引用上 5 回合的成败模式。
+  // 失败不阻塞主流程：跨回合记忆是质量增强项，不是正确性必要项。
+  try {
+    const historyEntry = buildHistoryEntry(
+      body.roundNumber,
+      eventsResult.data,
+      adjudication,
+      metricChanges,
+      rating,
+      ratingText,
+    );
+    const newHistorySummary = appendHistorySummary(game.history_summary ?? '', historyEntry);
+
+    const { error: updateHistoryError } = await supabase
+      .from('game_sessions')
+      .update({ history_summary: newHistorySummary })
+      .eq('id', game.id);
+
+    if (updateHistoryError) {
+      console.warn('SETTLE_ROUND_UPDATE_HISTORY_SUMMARY_FAILED', updateHistoryError);
+    }
+  } catch (historyError) {
+    console.warn('SETTLE_ROUND_BUILD_HISTORY_SUMMARY_FAILED', historyError);
   }
 
   return successResponse(request, {

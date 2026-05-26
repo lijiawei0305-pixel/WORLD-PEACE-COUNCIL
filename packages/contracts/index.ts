@@ -152,6 +152,8 @@ export const RoundEventSchema = z
     severity: EventSeveritySchema,
     description: NonEmptyTextSchema,
     involvedAlliances: z.array(IdSchema),
+    // 涉及国家的 ISO 3166-1 alpha-3 代码列表，AI 可不输出，用于地球高亮事件相关国家。
+    involvedCountries: z.array(z.string().trim()).default([]),
     potentialImpact: MetricChangesSchema,
     recommendedActions: z.array(NonEmptyTextSchema),
     unresolvedConsequence: NonEmptyTextSchema,

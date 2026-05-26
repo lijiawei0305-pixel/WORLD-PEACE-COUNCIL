@@ -5,6 +5,7 @@ import { capitals, type Capital } from '../../data/capitals';
 import { demoDiplomacyArcs } from '../../data/demoDiplomacyArcs';
 import { getFactionConfig } from '../../data/factions';
 import { createGlobeSelection, type GlobeSelection } from '../../data/worldPeaceCouncil';
+import { localizeAllianceName, useLanguage } from '../../lib/i18n';
 import {
   createArcLabel,
   createRenderArcs,
@@ -17,7 +18,6 @@ import {
 } from './globeArcStyle';
 import {
   createCountryLabel,
-  getCountryFaction,
   getIsoA3,
   getPolygonAltitude,
   getPolygonCapColor,
@@ -40,6 +40,7 @@ type CountriesGeoJson = {
 type DiplomacyGlobeProps = {
   selectedCountry: string;
   selectedLocation?: GlobeSelection;
+  highlightedCountries?: readonly string[];
   onLocationSelect: (selection: GlobeSelection) => void;
 };
 
@@ -65,7 +66,7 @@ function createCapitalLabel(capital: Capital): HTMLElement {
   return el;
 }
 
-function createCapitalTooltip(capital: Capital): string {
+function createCapitalTooltip(capital: Capital, language: 'zh' | 'en'): string {
   const selection = createGlobeSelection({
     kind: 'city',
     isoA3: capital.isoA3,
@@ -76,11 +77,11 @@ function createCapitalTooltip(capital: Capital): string {
   return `
     <div class="country-tooltip">
       <div class="country-tooltip__name">${capital.name}</div>
-      <div>Country: ${selection.countryName}</div>
+      <div>${language === 'en' ? 'Country' : '国家'}: ${selection.countryName}</div>
       <div>ISO: ${selection.isoA3}</div>
-      <div>所属联盟: <span class="country-tooltip__badge" style="--tooltip-alliance-color:${selection.allianceColor}">${selection.allianceName}</span></div>
-      <div>影响力: ${selection.influence}</div>
-      <div>稳定度: ${selection.stability}%</div>
+      <div>${language === 'en' ? 'Alliance' : '所属联盟'}: <span class="country-tooltip__badge" style="--tooltip-alliance-color:${selection.allianceColor}">${localizeAllianceName(selection.allianceName, language)}</span></div>
+      <div>${language === 'en' ? 'Influence' : '影响力'}: ${selection.influence}</div>
+      <div>${language === 'en' ? 'Stability' : '稳定度'}: ${selection.stability}%</div>
     </div>
   `;
 }
@@ -121,16 +122,36 @@ function tuneSceneLighting(world: GlobeInstance) {
   });
 }
 
-export default function DiplomacyGlobe({ selectedCountry, selectedLocation, onLocationSelect }: DiplomacyGlobeProps) {
+export default function DiplomacyGlobe({ selectedCountry, selectedLocation, highlightedCountries, onLocationSelect }: DiplomacyGlobeProps) {
+  const { language, t } = useLanguage();
   const containerRef = useRef<HTMLDivElement | null>(null);
   const screenHaloRef = useRef<HTMLDivElement | null>(null);
   const globeRef = useRef<GlobeInstance | null>(null);
   const selectedCountryRef = useRef(selectedCountry);
   const hoverCountryRef = useRef<string | undefined>(undefined);
+  // 当前回合事件涉及国家集合，命令式更新 globe.gl 的 polygon 着色 / altitude / stroke 时使用。
+  const highlightedCountriesRef = useRef<Set<string>>(new Set(highlightedCountries ?? []));
 
   useEffect(() => {
     selectedCountryRef.current = selectedCountry;
   }, [selectedCountry]);
+
+  useEffect(() => {
+    highlightedCountriesRef.current = new Set((highlightedCountries ?? []).map((iso) => iso.toUpperCase()));
+    const globe = globeRef.current;
+    if (!globe) {
+      return;
+    }
+    // highlightedCountries 变化后强制 globe.gl 重新计算 polygon cap / altitude / stroke。
+    globe
+      .polygonCapColor<CountryFeature>((country) => getPolygonCapColor(country, highlightedCountriesRef.current))
+      .polygonAltitude<CountryFeature>((country) =>
+        getPolygonAltitude(country, selectedCountryRef.current, hoverCountryRef.current, highlightedCountriesRef.current),
+      )
+      .polygonStrokeColor<CountryFeature>((country) =>
+        getPolygonStrokeColor(country, selectedCountryRef.current, hoverCountryRef.current, highlightedCountriesRef.current),
+      );
+  }, [highlightedCountries]);
 
   useEffect(() => {
     if (!containerRef.current || globeRef.current) {
@@ -157,10 +178,10 @@ export default function DiplomacyGlobe({ selectedCountry, selectedLocation, onLo
     const refreshPolygonFocus = () => {
       globe
         .polygonAltitude<CountryFeature>((country) =>
-          getPolygonAltitude(country, selectedCountryRef.current, hoverCountryRef.current),
+          getPolygonAltitude(country, selectedCountryRef.current, hoverCountryRef.current, highlightedCountriesRef.current),
         )
         .polygonStrokeColor<CountryFeature>((country) =>
-          getPolygonStrokeColor(country, selectedCountryRef.current, hoverCountryRef.current),
+          getPolygonStrokeColor(country, selectedCountryRef.current, hoverCountryRef.current, highlightedCountriesRef.current),
         );
     };
 
@@ -204,7 +225,7 @@ export default function DiplomacyGlobe({ selectedCountry, selectedLocation, onLo
       .pointAltitude<Capital>(0.018)
       .pointRadius<Capital>((capital) => getCapitalRadius(capital, selectedCountryRef.current))
       .pointColor<Capital>((capital) => getCapitalColor(capital, selectedCountryRef.current))
-      .pointLabel<Capital>(createCapitalTooltip)
+      .pointLabel<Capital>((capital) => createCapitalTooltip(capital, language))
       .onPointClick<Capital>((capital) => {
         onLocationSelect(
           createGlobeSelection({
@@ -307,15 +328,15 @@ export default function DiplomacyGlobe({ selectedCountry, selectedLocation, onLo
         const countries = Array.isArray(geoJson.features) ? geoJson.features : [];
         globe
           .polygonsData<CountryFeature>(countries)
-          .polygonCapColor<CountryFeature>(getPolygonCapColor)
+          .polygonCapColor<CountryFeature>((country) => getPolygonCapColor(country, highlightedCountriesRef.current))
           .polygonSideColor<CountryFeature>('rgba(0, 80, 120, 0.04)')
           .polygonStrokeColor<CountryFeature>((country) =>
-            getPolygonStrokeColor(country, selectedCountryRef.current, hoverCountryRef.current),
+            getPolygonStrokeColor(country, selectedCountryRef.current, hoverCountryRef.current, highlightedCountriesRef.current),
           )
           .polygonAltitude<CountryFeature>((country) =>
-            getPolygonAltitude(country, selectedCountryRef.current, hoverCountryRef.current),
+            getPolygonAltitude(country, selectedCountryRef.current, hoverCountryRef.current, highlightedCountriesRef.current),
           )
-          .polygonLabel<CountryFeature>(createCountryLabel)
+          .polygonLabel<CountryFeature>((country) => createCountryLabel(country, language))
           .onPolygonHover<CountryFeature>((country) => {
             hoverCountryRef.current = country ? getIsoA3(country) : undefined;
             refreshPolygonFocus();
@@ -354,7 +375,7 @@ export default function DiplomacyGlobe({ selectedCountry, selectedLocation, onLo
       globeRef.current = null;
       container.replaceChildren();
     };
-  }, [onLocationSelect]);
+  }, [language, onLocationSelect]);
 
   useEffect(() => {
     const globe = globeRef.current;
@@ -364,10 +385,10 @@ export default function DiplomacyGlobe({ selectedCountry, selectedLocation, onLo
 
     globe
       .polygonAltitude<CountryFeature>((country) =>
-        getPolygonAltitude(country, selectedCountry, hoverCountryRef.current),
+        getPolygonAltitude(country, selectedCountry, hoverCountryRef.current, highlightedCountriesRef.current),
       )
       .polygonStrokeColor<CountryFeature>((country) =>
-        getPolygonStrokeColor(country, selectedCountry, hoverCountryRef.current),
+        getPolygonStrokeColor(country, selectedCountry, hoverCountryRef.current, highlightedCountriesRef.current),
       )
       .pointRadius<Capital>((capital) => getCapitalRadius(capital, selectedCountry))
       .pointColor<Capital>((capital) => getCapitalColor(capital, selectedCountry));
@@ -387,7 +408,7 @@ export default function DiplomacyGlobe({ selectedCountry, selectedLocation, onLo
             } as CSSProperties
           }
         >
-          <span>{selectedLocation.kind === 'city' ? '城市节点' : '国家区域'}</span>
+          <span>{selectedLocation.kind === 'city' ? t('cityNode') : t('countryArea')}</span>
           <h2>{selectedLocation.kind === 'city' ? selectedLocation.cityName : selectedLocation.countryName}</h2>
           {selectedLocation.kind === 'city' ? <p>{selectedLocation.countryName}</p> : null}
           <dl>
@@ -396,18 +417,18 @@ export default function DiplomacyGlobe({ selectedCountry, selectedLocation, onLo
               <dd>{selectedLocation.isoA3}</dd>
             </div>
             <div>
-              <dt>所属联盟</dt>
+              <dt>{t('allianceBelonging')}</dt>
               <dd>
                 <i />
-                {selectedLocation.allianceName}
+                {localizeAllianceName(selectedLocation.allianceName, language)}
               </dd>
             </div>
             <div>
-              <dt>影响力</dt>
+              <dt>{t('influence')}</dt>
               <dd>{selectedLocation.influence}</dd>
             </div>
             <div>
-              <dt>稳定度</dt>
+              <dt>{t('stability')}</dt>
               <dd>{selectedLocation.stability}%</dd>
             </div>
           </dl>

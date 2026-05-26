@@ -23,6 +23,7 @@ type SubmitProposalRequest = {
   gameId: string;
   roundNumber: number;
   proposalText: string;
+  language: 'zh-CN' | 'en-US';
 };
 
 type GameSessionRow = {
@@ -70,6 +71,7 @@ type RoundEventRow = {
   severity: EventSeverity;
   description: string;
   involved_alliances: string[];
+  involved_countries: string[];
   potential_impact: MetricChanges;
   recommended_actions: string[];
   unresolved_consequence: string | null;
@@ -94,15 +96,35 @@ type SubmitProposalResponse = {
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const ACTION_TYPE_KEYWORDS: Array<{ actionType: string; keywords: string[] }> = [
-  { actionType: '谈判', keywords: ['谈判', '会谈', '协商', '磋商', '对话'] },
-  { actionType: '交换条件', keywords: ['交换条件', '条件交换', '互换', '对价'] },
-  { actionType: '让步', keywords: ['让步', '妥协', '缓和立场'] },
-  { actionType: '调查', keywords: ['调查', '核查', '审查', '溯源', '观察员'] },
-  { actionType: '制裁', keywords: ['制裁', '限制', '禁运', '冻结'] },
-  { actionType: '援助', keywords: ['援助', '救援', '基金', '人道', '粮食支援'] },
-  { actionType: '联合项目', keywords: ['联合项目', '共同项目', '共建', '合作项目', '建立机制', '军事热线'] },
-  { actionType: '紧急峰会', keywords: ['紧急峰会', '峰会', '特别会议', '部长会议'] },
+  { actionType: '谈判', keywords: ['谈判', '会谈', '协商', '磋商', '对话', 'negotiation', 'talks', 'dialogue', 'consultation'] },
+  { actionType: '交换条件', keywords: ['交换条件', '条件交换', '互换', '对价', 'trade-off', 'tradeoff', 'exchange'] },
+  { actionType: '让步', keywords: ['让步', '妥协', '缓和立场', 'concession', 'compromise'] },
+  { actionType: '调查', keywords: ['调查', '核查', '审查', '溯源', '观察员', 'investigation', 'verify', 'verification', 'observer', 'audit'] },
+  { actionType: '制裁', keywords: ['制裁', '限制', '禁运', '冻结', 'sanction', 'restriction', 'embargo', 'freeze'] },
+  { actionType: '援助', keywords: ['援助', '救援', '基金', '人道', '粮食支援', 'aid', 'relief', 'fund', 'humanitarian', 'food support'] },
+  { actionType: '联合项目', keywords: ['联合项目', '共同项目', '共建', '合作项目', '建立机制', '军事热线', 'joint project', 'shared project', 'cooperation project', 'hotline', 'mechanism'] },
+  { actionType: '紧急峰会', keywords: ['紧急峰会', '峰会', '特别会议', '部长会议', 'emergency summit', 'summit', 'special meeting', 'ministerial meeting'] },
 ];
+
+const ENGLISH_ALLIANCE_ALIASES: Record<string, string> = {
+  'north american-western alliance': 'north_west',
+  'north american western alliance': 'north_west',
+  'western alliance': 'north_west',
+  'zhonghua alliance': 'china',
+  'chinese alliance': 'china',
+  'russian federation': 'russia',
+  'russia': 'russia',
+  'middle east peace alliance': 'middle_east',
+  'middle east alliance': 'middle_east',
+  'african unity alliance': 'africa',
+  'african alliance': 'africa',
+  'latin american-south american alliance': 'latin_america',
+  'latin american south american alliance': 'latin_america',
+  'latin american alliance': 'latin_america',
+  'south american alliance': 'latin_america',
+  'southeast asia alliance': 'southeast_asia',
+  'south east asia alliance': 'southeast_asia',
+};
 
 const GAME_SELECT = `
   id,
@@ -126,6 +148,7 @@ const ROUND_EVENT_SELECT = `
   severity,
   description,
   involved_alliances,
+  involved_countries,
   potential_impact,
   recommended_actions,
   unresolved_consequence,
@@ -170,6 +193,7 @@ async function parseRequestBody(request: Request): Promise<SubmitProposalRequest
     gameId: body.gameId,
     roundNumber: body.roundNumber,
     proposalText: body.proposalText.trim(),
+    language: body.language === 'en-US' ? 'en-US' : 'zh-CN',
   };
 }
 
@@ -204,6 +228,7 @@ function mapRoundEvent(row: RoundEventRow): RoundEvent {
     severity: row.severity,
     description: row.description,
     involvedAlliances: row.involved_alliances,
+    involvedCountries: row.involved_countries ?? [],
     potentialImpact: row.potential_impact,
     recommendedActions: row.recommended_actions,
     unresolvedConsequence: row.unresolved_consequence ?? '',
@@ -239,6 +264,10 @@ function parseMentionedAlliances(proposalText: string, alliances: AllianceRow[])
     }
   }
 
+  for (const [alias, allianceId] of Object.entries(ENGLISH_ALLIANCE_ALIASES)) {
+    normalizedToAllianceId.set(alias, allianceId);
+  }
+
   return [...new Set(mentionTokens.flatMap((token) => {
     const exactMatch = normalizedToAllianceId.get(token.toLowerCase());
 
@@ -246,14 +275,20 @@ function parseMentionedAlliances(proposalText: string, alliances: AllianceRow[])
       return [exactMatch];
     }
 
+    const normalizedToken = token.toLowerCase().replace(/[·._-]+/g, ' ').replace(/\s+/g, ' ').trim();
     const fuzzyMatch = alliances.find((alliance) => token.includes(alliance.name) || alliance.name.includes(token));
+    const englishMatch = normalizedToAllianceId.get(normalizedToken);
+    if (englishMatch) {
+      return [englishMatch];
+    }
     return fuzzyMatch ? [fuzzyMatch.id] : [];
   }))];
 }
 
 function parseActionTypes(proposalText: string): string[] {
+  const normalized = proposalText.toLowerCase();
   return ACTION_TYPE_KEYWORDS
-    .filter(({ keywords }) => keywords.some((keyword) => proposalText.includes(keyword)))
+    .filter(({ keywords }) => keywords.some((keyword) => proposalText.includes(keyword) || normalized.includes(keyword)))
     .map(({ actionType }) => actionType);
 }
 
@@ -441,6 +476,7 @@ Deno.serve(async (request) => {
     events: eventsResult.data.map(mapRoundEvent),
     proposal: diplomaticProposal,
     historySummary: game.history_summary ?? '',
+    language: body.language,
   });
   const rawAiString = adjudicationResult.rawString;
   const validation = EvaluateProposalOutputSchema.safeParse(adjudicationResult.output);

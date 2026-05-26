@@ -59,6 +59,7 @@ type RoundEventRow = {
   severity: EventSeverity;
   description: string;
   involved_alliances: string[];
+  involved_countries: string[];
   potential_impact: MetricChanges;
   recommended_actions: string[];
   unresolved_consequence: string | null;
@@ -168,6 +169,7 @@ function mapRoundEvent(row: RoundEventRow): RoundEvent {
     severity: row.severity,
     description: row.description,
     involvedAlliances: row.involved_alliances,
+    involvedCountries: row.involved_countries ?? [],
     potentialImpact: row.potential_impact,
     recommendedActions: row.recommended_actions,
     unresolvedConsequence: row.unresolved_consequence ?? '',
@@ -351,6 +353,7 @@ Deno.serve(async (request) => {
           severity,
           description,
           involved_alliances,
+          involved_countries,
           potential_impact,
           recommended_actions,
           unresolved_consequence,

@@ -9,6 +9,7 @@ import {
   type WorldMetric,
   worldMetrics,
 } from '../../data/worldPeaceCouncil';
+import { localizeAllianceName, localizeGameStatus, localizeStage, useLanguage } from '../../lib/i18n';
 import AllianceList from './AllianceList';
 import MetricBar from './MetricBar';
 
@@ -30,6 +31,14 @@ const stageBrief: Record<CouncilStageId, string> = {
   settlement: '复盘未解决事件，并为下一回合预留援助或调查资源。',
 };
 
+const stageBriefEn: Record<CouncilStageId, string> = {
+  events: 'Confirm the spread path of high-risk events before miscalculation accumulates.',
+  overview: 'Compare military, energy, and food risk lines to find negotiable trade-offs.',
+  proposal: 'Name at least two alliances so the AI can adjudicate a multilateral plan.',
+  adjudication: 'Wait for alliance reactions and watch the cost behind conditional acceptance.',
+  settlement: 'Review unresolved events and reserve aid or investigation capacity for the next round.',
+};
+
 const gameStatusText: Record<GameStatus, string> = {
   ACTIVE: '秩序仍可维持',
   WON: '和平框架达成',
@@ -47,25 +56,26 @@ export default function LeftPanels({
   metrics = worldMetrics,
   selectedLocation,
 }: LeftPanelsProps) {
-  const activeStage = councilStages[activeStageIndex];
-  const currentBriefing = briefing?.trim() || stageBrief[activeStage.id];
+  const { language, t } = useLanguage();
+  const activeStage = localizeStage(councilStages[activeStageIndex], language);
+  const currentBriefing = briefing?.trim() || (language === 'en' ? stageBriefEn[activeStage.id] : stageBrief[activeStage.id]);
 
   return (
-    <aside className="wpc-left hud-column" aria-label="世界状态与联盟概览">
+    <aside className="wpc-left hud-column" aria-label={t('objectivePanel')}>
       <section className="wpc-panel">
         <div className="wpc-panel-heading">
-          <span>游戏目标 / 世界状态</span>
+          <span>{t('objectivePanel')}</span>
           <strong>OBJECTIVE</strong>
         </div>
 
         <div className="wpc-objective">
           <div>
-            <span>主要目标</span>
-            <strong>在 20 回合内避免世界大战</strong>
+            <span>{t('mainObjective')}</span>
+            <strong>{t('objectiveText')}</strong>
           </div>
           <div>
-            <span>失败条件</span>
-            <strong>全球紧张度 &gt;= 100</strong>
+            <span>{t('failCondition')}</span>
+            <strong>{t('failConditionText')}</strong>
           </div>
         </div>
 
@@ -77,23 +87,23 @@ export default function LeftPanels({
 
         <div className="wpc-state-grid">
           <div>
-            <span>本回合危机数</span>
+            <span>{t('crisisCount')}</span>
             <strong>{eventCount}</strong>
           </div>
           <div>
-            <span>当前阶段</span>
+            <span>{t('currentStage')}</span>
             <strong>{activeStage.statusLabel}</strong>
           </div>
           <div>
-            <span>游戏状态</span>
-            <strong>{gameStatusText[gameStatus]}</strong>
+            <span>{t('gameStatus')}</span>
+            <strong>{localizeGameStatus(gameStatus, language, true) || gameStatusText[gameStatus]}</strong>
           </div>
         </div>
       </section>
 
       <section className="wpc-panel">
         <div className="wpc-panel-heading">
-          <span>七大联盟概览</span>
+          <span>{t('alliancesOverview')}</span>
           <strong>ALLIANCES</strong>
         </div>
         <AllianceList alliances={alliances} />
@@ -101,14 +111,14 @@ export default function LeftPanels({
 
       <section className="wpc-panel wpc-brief-panel">
         <div className="wpc-panel-heading">
-          <span>本回合简报</span>
+          <span>{t('briefing')}</span>
           <strong>BRIEFING</strong>
         </div>
         <p>{currentBriefing}</p>
         {selectedLocation ? (
           <div className="wpc-selected-brief" style={{ '--selection-color': selectedLocation.allianceColor } as CSSProperties}>
             <span>{selectedLocation.kind === 'city' ? selectedLocation.cityName : selectedLocation.countryName}</span>
-            <strong>{selectedLocation.allianceName}</strong>
+            <strong>{localizeAllianceName(selectedLocation.allianceName, language)}</strong>
           </div>
         ) : null}
       </section>

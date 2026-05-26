@@ -53,7 +53,7 @@ const AiMetricChangesSchema = z
     aiRisk: z.number().int().min(-10).max(10).optional(),
     economicPressure: z.number().int().min(-10).max(10).optional(),
     humanitarianCrisis: z.number().int().min(-10).max(10).optional(),
-    peaceAgreement: z.number().int().min(-8).max(8).optional(),
+    peaceAgreement: z.number().int().min(-10).max(12).optional(),
   })
   .strict();
 
@@ -64,6 +64,8 @@ const RawAiGeneratedEventSchema = z
     severity: EventSeveritySchema,
     description: NonEmptyTextSchema,
     involvedAlliances: z.array(NonEmptyTextSchema),
+    // ISO 3166-1 alpha-3 国家代码列表，AI 可不输出（默认空数组），用于前端在地球上高亮该事件涉及的国家。
+    involvedCountries: z.array(z.string().trim().regex(/^[A-Z]{3}$/u)).max(6).default([]),
     potentialImpact: AiMetricChangesSchema,
     recommendedActions: z.array(NonEmptyTextSchema).min(1),
     unresolvedConsequence: NonEmptyTextSchema,

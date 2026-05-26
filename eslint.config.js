@@ -14,6 +14,7 @@ export default [
       'artifacts/**',
       'supabase/**',
       'coverage/**',
+      'scripts/**',
       '*.config.js',
       '*.config.ts',
     ],
@@ -40,6 +41,7 @@ export default [
         cancelAnimationFrame: 'readonly',
         ResizeObserver: 'readonly',
         AbortController: 'readonly',
+        URL: 'readonly',
         HTMLElement: 'readonly',
         HTMLDivElement: 'readonly',
         HTMLCanvasElement: 'readonly',
@@ -54,6 +56,16 @@ export default [
       'react-refresh': reactRefresh,
     },
     rules: {
+      // 关掉 base 版（不识别 TS 类型签名里只用作类型的参数），换 TS 版。
+      'no-unused-vars': 'off',
+      '@typescript-eslint/no-unused-vars': [
+        'warn',
+        {
+          argsIgnorePattern: '^_',
+          varsIgnorePattern: '^_',
+          caughtErrorsIgnorePattern: '^_',
+        },
+      ],
       '@typescript-eslint/no-explicit-any': 'warn',
       'react-hooks/rules-of-hooks': 'error',
       'no-console': ['warn', { allow: ['warn', 'error'] }],

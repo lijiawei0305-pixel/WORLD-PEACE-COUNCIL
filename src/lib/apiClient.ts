@@ -4,7 +4,6 @@ import type {
   AIAdjudication,
   AllianceReactionAttitude,
   GameSnapshot,
-  MetricChanges,
 } from '../contracts/game';
 import {
   AIAdjudicationSchema,
@@ -19,23 +18,21 @@ import {
   MetricChangesSchema,
   NonEmptyTextSchema,
   RoundEventSchema,
-  RoundSettlementSchema,
   RoundStageSchema,
   WorldStateSchema,
 } from './gameSchemas';
+import { getAIPromptLanguage, type Language } from './i18n';
 
-const FUNCTION_NAMES = [
-  'create-game',
-  'get-game-state',
-  'generate-events',
-  'advance-stage',
-  'submit-proposal',
-  'settle-round',
-  'next-round',
-  'alliance-map',
-] as const;
-
-type FunctionName = (typeof FUNCTION_NAMES)[number];
+// 8 个 Edge Function 的字面量名联合，用于约束 callEdgeFunction 入参。
+type FunctionName =
+  | 'create-game'
+  | 'get-game-state'
+  | 'generate-events'
+  | 'advance-stage'
+  | 'submit-proposal'
+  | 'settle-round'
+  | 'next-round'
+  | 'alliance-map';
 type RequestMethod = 'GET' | 'POST';
 
 type EdgeFunctionOptions = {
@@ -527,19 +524,6 @@ function normalizeGameSnapshot(value: unknown): unknown {
   return normalized;
 }
 
-function ratioFromPercentage(value: number): number {
-  return Math.min(Math.max(value / 100, 0), 1);
-}
-
-function estimateEscalationRisk(metricImpact: MetricChanges): number {
-  const tension = Math.max(metricImpact.globalTension ?? 0, 0);
-  const aiRisk = Math.max(metricImpact.aiRisk ?? 0, 0);
-  const humanitarian = Math.max(metricImpact.humanitarianCrisis ?? 0, 0);
-  const stabilityLoss = Math.max(-(metricImpact.worldStability ?? 0), 0);
-
-  return Math.min(0.35 + tension * 0.03 + aiRisk * 0.02 + humanitarian * 0.02 + stabilityLoss * 0.02, 1);
-}
-
 function attitudeLabel(attitude: AllianceReactionAttitude): string {
   const labels: Record<AllianceReactionAttitude, string> = {
     ACCEPT: '接受',
@@ -622,11 +606,12 @@ export async function getGameState(gameId: string): Promise<GameSnapshot> {
   return parseResponseData('get-game-state', GameSnapshotSchema, normalizeGameSnapshot(data));
 }
 
-export async function generateEvents(gameId: string, roundNumber: number): Promise<GenerateEventsResponse> {
+export async function generateEvents(gameId: string, roundNumber: number, language: Language = 'zh'): Promise<GenerateEventsResponse> {
   const data = await callEdgeFunction('generate-events', {
     body: {
       gameId: validateInput(UuidSchema, gameId, 'gameId 必须是合法 UUID。'),
       roundNumber: validateInput(RoundNumberSchema, roundNumber, 'roundNumber 必须是 1 到 20 的整数。'),
+      language: getAIPromptLanguage(language),
     },
   });
 
@@ -647,12 +632,14 @@ export async function submitProposal(
   gameId: string,
   roundNumber: number,
   proposalText: string,
+  language: Language = 'zh',
 ): Promise<SubmitProposalResponse> {
   const data = await callEdgeFunction('submit-proposal', {
     body: {
       gameId: validateInput(UuidSchema, gameId, 'gameId 必须是合法 UUID。'),
       roundNumber: validateInput(RoundNumberSchema, roundNumber, 'roundNumber 必须是 1 到 20 的整数。'),
       proposalText: validateInput(ProposalTextSchema, proposalText, 'proposalText 必须是 8 到 2000 个字符。'),
+      language: getAIPromptLanguage(language),
     },
   });
   const raw = parseResponseData('submit-proposal', RawSubmitProposalResponseSchema, data);

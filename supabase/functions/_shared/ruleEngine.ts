@@ -15,7 +15,7 @@ const METRIC_CHANGE_LIMITS: Record<WorldMetricKey, { min: number; max: number }>
   aiRisk: { min: -10, max: 10 },
   economicPressure: { min: -10, max: 10 },
   humanitarianCrisis: { min: -10, max: 10 },
-  peaceAgreement: { min: -8, max: 8 },
+  peaceAgreement: { min: -10, max: 12 },
 };
 
 export function clampValue(value: number, min = 0, max = 100): number {

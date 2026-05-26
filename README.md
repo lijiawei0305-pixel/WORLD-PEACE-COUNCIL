@@ -62,7 +62,7 @@ peaceAgreement = 20
 
 ## 当前实现状态
 
-已完成：
+已完成（MVP 闭环全通）：
 
 - Vite + React + TypeScript 前端视觉原型
 - `globe.gl` 3D 地球、阵营区域、外交弧线、城市节点和 HUD
@@ -70,15 +70,16 @@ peaceAgreement = 20
 - Supabase Edge Functions 后端 API
 - Zod API Contract 和 AI 输出校验
 - 真实 AI API 调用与 fallback
-- 后端规则引擎
+- 后端规则引擎与 plpgsql 事务 RPC
 - 创建游戏、生成事件、推进阶段、提交提案、AI 裁定、回合结算、进入下一回合
-- 国家/城市到联盟映射 API
+- 国家/城市到联盟映射 API（公开匿名读）
 - 前端 API Client：`src/lib/apiClient.ts`
-
-仍待接入：
-
-- 当前浏览器 UI 主要还是视觉和交互壳，尚未把 HUD 按钮完整接入 `apiClient`。
-- 后端 MVP 闭环已经可以通过 API 跑通；要在浏览器里点按钮完整玩一局，需要继续接入前端状态流。
+- 前端 HUD 全部按钮已接入 apiClient，浏览器可完整玩 20 回合
+- `useGameSession` Hook 统一管理 auth bootstrap、snapshot、错误/loading、按 userId 隔离的 localStorage 恢复
+- `gameOrchestrator` 状态机：按 RoundStage 路由 advance / submit / settle / next 调用
+- 跨回合 AI 记忆：`game_sessions.history_summary` 在每回合结算时自动累积本回合摘要，喂给下一回合的 generate-events / submit-proposal 提示词，按滑动窗口保留最近 5 条
+- 外交提案控制台 @ 联盟自动补全 + 右栏"可用行动方式"按钮一键注入动作词到草稿
+- 错误路径与边界校验：401/400/404/409 全部按 API envelope 返回机器可读 error code
 
 ## 技术栈
 
@@ -188,8 +189,7 @@ SUPABASE_SERVICE_ROLE_KEY=<local-service-role-key>
 AI_MOCK_MODE=false
 AI_BASE_URL=<openai-compatible-base-url>
 AI_API_KEY=<server-side-ai-api-key>
-AI_MODEL=gpt-5.4-mini
-AI_REASONING_EFFORT=low
+AI_MODEL=<model-id>
 AI_REQUEST_TIMEOUT_MS=45000
 ALLOWED_ORIGINS=http://localhost:5173,http://127.0.0.1:5173,http://localhost:4173,http://127.0.0.1:4173
 ```
@@ -342,18 +342,15 @@ npm run build
 - 世界指标变化必须经过后端规则引擎 clamp。
 - 复杂功能优先让位于 MVP 回合闭环。
 
-## 下一步
+## 浏览器中玩一局
 
-最关键的下一步是把当前 HUD 接入 `src/lib/apiClient.ts`：
+启动 Vite dev server 后访问 `http://127.0.0.1:5173/`：
 
-```text
-createGame
-generateEvents
-advanceStage
-submitProposal
-settleRound
-nextRound
-getGameState
-```
+1. 开发模式会用 `VITE_PLAYTEST_EMAIL` / `VITE_PLAYTEST_PASSWORD` 自动登录并创建第 1 局游戏。生产构建下需要手动登录。
+2. 底部"外交提案控制台"按钮按当前回合阶段切换文案（`生成本回合事件` → `下一步：局势总览` → `下一步：外交提案` → `提交提案` → `进入回合结算` → `开始下一回合`）。
+3. 在 `DIPLOMATIC_PROPOSAL` 阶段可以输入 `@` 唤起七大联盟自动补全菜单，也可以点击右栏"可用行动方式"中任意按钮把动作词追加到提案草稿。
+4. 提交后等待 AI 裁定（通常 10-30 秒），右栏会展示 7 个联盟的态度、AI 评估摘要、事件结算预测。
+5. 回合结算后底部出现 metric delta 卡片与回合评分，点击"开始下一回合"即可推进。
+6. 推进过程中的 `gameId` 会按 `wpc.<userId>.activeGameId` 写入 localStorage，刷新页面会自动恢复同一局；登出会清除当前用户的本地缓存。
 
-完成后，玩家就可以直接在浏览器中创建游戏、阅读事件、提交外交提案、查看 AI 裁定和进入下一回合。
+`useGameSession` Hook 接管了所有 auth bootstrap、snapshot 拉取、错误/loading 状态；`gameOrchestrator` 按 `RoundStage` 路由到对应 API 调用，错误统一以 `ApiClientError` 抛给 hook 渲染。

@@ -11,6 +11,7 @@ import {
   settleRound,
   submitProposal,
 } from './apiClient';
+import type { Language } from './i18n';
 
 /** orchestrator 需要的副作用注入。useGameSession 在内部把 setter 包好后传入。 */
 export type OrchestratorDeps = {
@@ -19,6 +20,20 @@ export type OrchestratorDeps = {
   setRoundMeta: (meta: { roundNumber: number; briefing?: string; priorityIssue?: string } | null) => void;
   rememberMetricChanges: (gameId: string, metricChanges: MetricChanges | null | undefined) => void;
   resetSelectedLocation: () => void;
+  language: Language;
+  uiText: {
+    generatedEvents: (count: number) => string;
+    enteredOverview: string;
+    enteredProposal: string;
+    proposalRequired: string;
+    settlementComplete: string;
+    gameEnded: (status: string) => string;
+    gameAlreadyEnded: string;
+    maxRoundsReached: string;
+    enteredRound: (round: number) => string;
+    submitOnlyProposalStage: string;
+    aiRulingComplete: (summary: string) => string;
+  };
 };
 
 /** 用 stage 作 key 的处理器表，替代 if-else 链。 */
@@ -35,7 +50,7 @@ const handleRandomEvent: StageHandler = async (snapshot, deps) => {
   const roundNumber = snapshot.currentRound;
 
   if (snapshot.events.length === 0) {
-    const response = await generateEvents(gameId, roundNumber);
+    const response = await generateEvents(gameId, roundNumber, deps.language);
 
     deps.setSnapshot((current) => {
       if (!current || current.game.id !== gameId) {
@@ -48,23 +63,23 @@ const handleRandomEvent: StageHandler = async (snapshot, deps) => {
       briefing: response.roundBriefing,
       priorityIssue: response.priorityIssue,
     });
-    deps.setStatusMessage(`已生成 ${response.events.length} 个随机事件，请进入局势总览。`);
+    deps.setStatusMessage(deps.uiText.generatedEvents(response.events.length));
     return;
   }
 
   await advanceStage(gameId);
   await refresh(gameId, deps);
-  deps.setStatusMessage('已进入局势总览。');
+  deps.setStatusMessage(deps.uiText.enteredOverview);
 };
 
 const handleSituationOverview: StageHandler = async (snapshot, deps) => {
   await advanceStage(snapshot.game.id);
   await refresh(snapshot.game.id, deps);
-  deps.setStatusMessage('已进入外交提案阶段。');
+  deps.setStatusMessage(deps.uiText.enteredProposal);
 };
 
 const handleDiplomaticProposal: StageHandler = async () => {
-  throw new Error('当前阶段需要先提交外交提案。');
+  throw new Error('PROPOSAL_STAGE_SUBMIT_REQUIRED');
 };
 
 const handleAiAdjudication: StageHandler = async (snapshot, deps) => {
@@ -74,18 +89,18 @@ const handleAiAdjudication: StageHandler = async (snapshot, deps) => {
   deps.rememberMetricChanges(gameId, settled.settlement?.metricChanges);
   deps.setStatusMessage(
     settled.game.status === 'ACTIVE'
-      ? '回合结算完成，可以进入下一回合。'
-      : `游戏已结束：${settled.game.status}`,
+      ? deps.uiText.settlementComplete
+      : deps.uiText.gameEnded(settled.game.status),
   );
 };
 
 const handleRoundSettlement: StageHandler = async (snapshot, deps) => {
   if (snapshot.game.status !== 'ACTIVE') {
-    deps.setStatusMessage('游戏已经结束，请创建新游戏。');
+    deps.setStatusMessage(deps.uiText.gameAlreadyEnded);
     return;
   }
   if (snapshot.game.currentRound >= snapshot.game.maxRounds) {
-    deps.setStatusMessage('已到达最大回合数，不能继续推进。');
+    deps.setStatusMessage(deps.uiText.maxRoundsReached);
     return;
   }
 
@@ -94,7 +109,7 @@ const handleRoundSettlement: StageHandler = async (snapshot, deps) => {
   deps.setSnapshot(next);
   deps.setRoundMeta(null);
   deps.resetSelectedLocation();
-  deps.setStatusMessage(`已进入第 ${next.game.currentRound} 回合，请生成随机事件。`);
+  deps.setStatusMessage(deps.uiText.enteredRound(next.game.currentRound));
 };
 
 const stageHandlers: Record<RoundStage, StageHandler> = {
@@ -124,10 +139,10 @@ export async function submitProposalAction(
   deps: OrchestratorDeps,
 ): Promise<void> {
   if (snapshot.game.stage !== 'DIPLOMATIC_PROPOSAL') {
-    throw new Error('只有外交提案阶段可以提交提案。');
+    throw new Error('SUBMIT_ONLY_PROPOSAL_STAGE');
   }
 
-  const response = await submitProposal(snapshot.game.id, snapshot.currentRound, proposal);
+  const response = await submitProposal(snapshot.game.id, snapshot.currentRound, proposal, deps.language);
   await refresh(snapshot.game.id, deps);
-  deps.setStatusMessage(`AI 裁定完成：${response.adjudication.aiAssessment.summary}`);
+  deps.setStatusMessage(deps.uiText.aiRulingComplete(response.adjudication.aiAssessment.summary));
 }

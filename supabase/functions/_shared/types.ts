@@ -69,6 +69,7 @@ export type RoundEvent = {
   severity: EventSeverity;
   description: string;
   involvedAlliances: string[];
+  involvedCountries: string[];
   potentialImpact: MetricChanges;
   recommendedActions: string[];
   unresolvedConsequence: string;

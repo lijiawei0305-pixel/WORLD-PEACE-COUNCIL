@@ -1,17 +1,19 @@
 import type { CSSProperties } from 'react';
 import type { AllianceProfile } from '../../data/worldPeaceCouncil';
+import { useLanguage } from '../../lib/i18n';
 
 type AllianceListProps = {
   alliances: AllianceProfile[];
 };
 
 export default function AllianceList({ alliances }: AllianceListProps) {
+  const { t } = useLanguage();
   return (
-    <div className="wpc-alliance-table" role="table" aria-label="七大联盟立场">
+    <div className="wpc-alliance-table" role="table" aria-label={t('alliancesOverview')}>
       <div className="wpc-alliance-table__head" role="row">
-        <span role="columnheader">联盟</span>
-        <span role="columnheader">立场</span>
-        <span role="columnheader">满意度</span>
+        <span role="columnheader">{t('alliance')}</span>
+        <span role="columnheader">{t('stance')}</span>
+        <span role="columnheader">{t('satisfaction')}</span>
       </div>
       {alliances.map((alliance) => (
         <div key={alliance.id} className="wpc-alliance-row" role="row">

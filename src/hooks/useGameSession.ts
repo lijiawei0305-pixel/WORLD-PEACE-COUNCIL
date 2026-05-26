@@ -20,6 +20,7 @@ import {
   submitProposalAction,
   type OrchestratorDeps,
 } from '../lib/gameOrchestrator';
+import { useLanguage } from '../lib/i18n';
 
 const PLAYTEST_EMAIL = import.meta.env.VITE_PLAYTEST_EMAIL ?? 'playtest@example.com';
 const PLAYTEST_PASSWORD = import.meta.env.VITE_PLAYTEST_PASSWORD ?? '';
@@ -46,6 +47,7 @@ export type UseGameSessionResult = {
     advance: () => void;
     submitProposal: (proposal: string) => void;
     onLoginSuccess: () => void;
+    signOut: () => void;
   };
 };
 
@@ -91,6 +93,11 @@ function storeMetricChanges(userId: string | null, gameId: string, metricChanges
 function clearUserStorage(userId: string | null): void {
   localStorage.removeItem(activeGameKey(userId));
   localStorage.removeItem(metricChangesKey(userId));
+}
+
+function clearSavedGamePointers(userId: string | null): void {
+  clearUserStorage(userId);
+  clearUserStorage(null);
 }
 
 function getSupabaseHostHint(): string {
@@ -162,9 +169,17 @@ function getErrorMessage(error: unknown): string {
   return '发生未知错误。';
 }
 
-async function ensurePlaytestSession(): Promise<void> {
+async function getCurrentSessionUserId(): Promise<string | null> {
+  const { data, error } = await getSupabaseClient().auth.getSession();
+  if (error) {
+    throw new Error(`读取登录状态失败：${error.message}`);
+  }
+  return data.session?.user.id ?? null;
+}
+
+async function ensurePlaytestSession(): Promise<string | null> {
   if (!PLAYTEST_PASSWORD) {
-    return;
+    return getCurrentSessionUserId();
   }
 
   const supabase = getSupabaseClient();
@@ -173,7 +188,7 @@ async function ensurePlaytestSession(): Promise<void> {
     throw new Error(`读取登录状态失败：${sessionError.message}`);
   }
   if (sessionData.session) {
-    return;
+    return sessionData.session.user.id;
   }
 
   if (!import.meta.env.DEV) {
@@ -182,7 +197,7 @@ async function ensurePlaytestSession(): Promise<void> {
 
   const signIn = await supabase.auth.signInWithPassword({ email: PLAYTEST_EMAIL, password: PLAYTEST_PASSWORD });
   if (!signIn.error && signIn.data.session) {
-    return;
+    return signIn.data.session.user.id;
   }
 
   const signUp = await supabase.auth.signUp({
@@ -194,31 +209,34 @@ async function ensurePlaytestSession(): Promise<void> {
     throw new Error(`创建测试用户失败：${signUp.error.message}`);
   }
   if (signUp.data.session) {
-    return;
+    return signUp.data.session.user.id;
   }
 
   const retry = await supabase.auth.signInWithPassword({ email: PLAYTEST_EMAIL, password: PLAYTEST_PASSWORD });
   if (retry.error || !retry.data.session) {
     throw new Error('测试用户未能登录。请确认云端 Supabase Auth 已启用邮箱密码登录。');
   }
+  return retry.data.session.user.id;
 }
 
 function createInitialGameOnce(): Promise<GameSnapshot> {
   if (!pendingInitialGame) {
-    pendingInitialGame = createGame().catch((error: unknown) => {
+    pendingInitialGame = createGame().finally(() => {
       pendingInitialGame = null;
-      throw error;
     });
   }
   return pendingInitialGame;
 }
 
 export function useGameSession(): UseGameSessionResult {
+  const { language } = useLanguage();
   const [snapshot, setSnapshot] = useState<GameSnapshot | null>(null);
   const [lastMetricChanges, setLastMetricChanges] = useState<MetricChanges | null>(null);
   const [roundMeta, setRoundMeta] = useState<RoundMeta | null>(null);
   const [isBusy, setIsBusy] = useState(false);
-  const [statusMessage, setStatusMessage] = useState('正在连接云端 Supabase...');
+  const [statusMessage, setStatusMessage] = useState(
+    language === 'en' ? 'Connecting to cloud Supabase...' : '正在连接云端 Supabase...',
+  );
   const [errorMessage, setErrorMessage] = useState('');
   const [needsLogin, setNeedsLogin] = useState(false);
   const userIdRef = useRef<string | null>(null);
@@ -242,7 +260,25 @@ export function useGameSession(): UseGameSessionResult {
       // selectedLocation 由 App 管理，这里没有引用；保留 hook 形参兼容 orchestrator 的接口。
       // App 会在 snapshot 切换时通过 useEffect 自行清理。
     },
-  }), [rememberMetricChanges]);
+    language,
+    uiText: {
+      generatedEvents: (count) => language === 'en'
+        ? `Generated ${count} random events. Move to the situation overview.`
+        : `已生成 ${count} 个随机事件，请进入局势总览。`,
+      enteredOverview: language === 'en' ? 'Entered the situation overview.' : '已进入局势总览。',
+      enteredProposal: language === 'en' ? 'Entered the diplomatic proposal stage.' : '已进入外交提案阶段。',
+      proposalRequired: language === 'en' ? 'Submit a diplomatic proposal first.' : '当前阶段需要先提交外交提案。',
+      settlementComplete: language === 'en' ? 'Round settlement complete. You can start the next round.' : '回合结算完成，可以进入下一回合。',
+      gameEnded: (status) => language === 'en' ? `Game ended: ${status}` : `游戏已结束：${status}`,
+      gameAlreadyEnded: language === 'en' ? 'The game has ended. Create a new game.' : '游戏已经结束，请创建新游戏。',
+      maxRoundsReached: language === 'en' ? 'Maximum rounds reached. You cannot continue.' : '已到达最大回合数，不能继续推进。',
+      enteredRound: (round) => language === 'en'
+        ? `Entered Round ${round}. Generate random events.`
+        : `已进入第 ${round} 回合，请生成随机事件。`,
+      submitOnlyProposalStage: language === 'en' ? 'You can only submit during the proposal stage.' : '只有外交提案阶段可以提交提案。',
+      aiRulingComplete: (summary) => language === 'en' ? `AI ruling complete: ${summary}` : `AI 裁定完成：${summary}`,
+    },
+  }), [rememberMetricChanges, language]);
 
   const runGameAction = useCallback(
     async (message: string, action: () => Promise<void>) => {
@@ -250,12 +286,30 @@ export function useGameSession(): UseGameSessionResult {
       setStatusMessage(message);
       setErrorMessage('');
       try {
-        await ensurePlaytestSession();
+        userIdRef.current = await ensurePlaytestSession();
         await action();
       } catch (error) {
         if (error instanceof ApiClientError && error.code === 'NEEDS_LOGIN') {
           setNeedsLogin(true);
-          setStatusMessage('请先登录后再开始游戏。');
+          setStatusMessage(language === 'en' ? 'Sign in before starting the game.' : '请先登录后再开始游戏。');
+        } else if (
+          error instanceof ApiClientError &&
+          ['FORBIDDEN', 'GAME_NOT_FOUND'].includes(error.code)
+        ) {
+          clearSavedGamePointers(userIdRef.current);
+          setSnapshot(null);
+          setLastMetricChanges(null);
+          setRoundMeta(null);
+          setStatusMessage(
+            language === 'en'
+              ? 'The saved game does not belong to this account. It was cleared; connect again to create a new game.'
+              : '这局旧存档不属于当前账号，已清除本地指针；请重新连接以创建新游戏。',
+          );
+          setErrorMessage('');
+        } else if (error instanceof Error && error.message === 'PROPOSAL_STAGE_SUBMIT_REQUIRED') {
+          setErrorMessage(language === 'en' ? 'Submit a diplomatic proposal first.' : '当前阶段需要先提交外交提案。');
+        } else if (error instanceof Error && error.message === 'SUBMIT_ONLY_PROPOSAL_STAGE') {
+          setErrorMessage(language === 'en' ? 'You can only submit during the proposal stage.' : '只有外交提案阶段可以提交提案。');
         } else {
           setErrorMessage(getErrorMessage(error));
         }
@@ -263,11 +317,12 @@ export function useGameSession(): UseGameSessionResult {
         setIsBusy(false);
       }
     },
-    [],
+    [language],
   );
 
   const loadOrCreateGame = useCallback(async () => {
-    const userId = userIdRef.current;
+    const userId = await getCurrentSessionUserId();
+    userIdRef.current = userId;
     const savedGameId = localStorage.getItem(activeGameKey(userId));
 
     if (savedGameId) {
@@ -275,10 +330,10 @@ export function useGameSession(): UseGameSessionResult {
         const saved = await getGameState(savedGameId);
         setSnapshot(saved);
         setLastMetricChanges(saved.settlement?.metricChanges ?? readStoredMetricChanges(userId, saved.game.id));
-        setStatusMessage(`已恢复第 ${saved.game.currentRound} 回合。`);
+        setStatusMessage(language === 'en' ? `Restored Round ${saved.game.currentRound}.` : `已恢复第 ${saved.game.currentRound} 回合。`);
         return;
       } catch (error) {
-        localStorage.removeItem(activeGameKey(userId));
+        clearSavedGamePointers(userId);
         console.warn('恢复已保存游戏失败，将创建新游戏。', error);
       }
     }
@@ -288,14 +343,14 @@ export function useGameSession(): UseGameSessionResult {
     setLastMetricChanges(null);
     setRoundMeta(null);
     localStorage.setItem(activeGameKey(userId), created.game.id);
-    setStatusMessage('已创建第 1 回合，请生成本回合随机事件。');
-  }, []);
+    setStatusMessage(language === 'en' ? 'Created Round 1. Generate random events for this round.' : '已创建第 1 回合，请生成本回合随机事件。');
+  }, [language]);
 
   // bootstrap：首次加载尝试 ensurePlaytestSession + loadOrCreateGame
   useEffect(() => {
     if (bootstrappedRef.current) return;
     bootstrappedRef.current = true;
-    void runGameAction('正在连接云端 Supabase...', loadOrCreateGame);
+    void runGameAction(language === 'en' ? 'Connecting to cloud Supabase...' : '正在连接云端 Supabase...', loadOrCreateGame);
   }, [loadOrCreateGame, runGameAction]);
 
   // 监听 auth：登入后记录 userId、登出时清当前用户的 localStorage 和 snapshot
@@ -315,6 +370,12 @@ export function useGameSession(): UseGameSessionResult {
         setLastMetricChanges(null);
         setRoundMeta(null);
         bootstrappedRef.current = false;
+        // 监听到登出 / 切换账号时，让 UI 立即回到登录注册页面，而不是停留在没有 snapshot 的空白游戏屏幕。
+        if (event === 'SIGNED_OUT') {
+          setNeedsLogin(true);
+          setStatusMessage(language === 'en' ? 'Signed out. Sign in again or create a new account.' : '已退出登录，请重新登录或注册新账号。');
+          setErrorMessage('');
+        }
       }
 
       userIdRef.current = nextUserId;
@@ -323,46 +384,59 @@ export function useGameSession(): UseGameSessionResult {
     return () => {
       subscription.subscription.unsubscribe();
     };
-  }, []);
+  }, [language]);
 
   const startNewGame = useCallback(() => {
-    void runGameAction('正在创建新游戏...', async () => {
+    void runGameAction(language === 'en' ? 'Creating a new game...' : '正在创建新游戏...', async () => {
       const created = await createGame();
       setSnapshot(created);
       setLastMetricChanges(null);
       setRoundMeta(null);
       localStorage.setItem(activeGameKey(userIdRef.current), created.game.id);
-      setStatusMessage('已创建新游戏，请生成第 1 回合随机事件。');
+      setStatusMessage(language === 'en' ? 'Created a new game. Generate Round 1 events.' : '已创建新游戏，请生成第 1 回合随机事件。');
     });
-  }, [runGameAction]);
+  }, [language, runGameAction]);
 
   const advance = useCallback(() => {
-    void runGameAction('正在同步阶段...', async () => {
+    void runGameAction(language === 'en' ? 'Synchronizing stage...' : '正在同步阶段...', async () => {
       if (!snapshot) {
         await loadOrCreateGame();
         return;
       }
       await advanceGame(snapshot, buildOrchestratorDeps());
     });
-  }, [buildOrchestratorDeps, loadOrCreateGame, runGameAction, snapshot]);
+  }, [buildOrchestratorDeps, language, loadOrCreateGame, runGameAction, snapshot]);
 
   const submitProposalCallback = useCallback(
     (proposal: string) => {
-      void runGameAction('正在提交提案并等待 AI 裁定...', async () => {
+      void runGameAction(language === 'en' ? 'Submitting proposal and waiting for AI ruling...' : '正在提交提案并等待 AI 裁定...', async () => {
         if (!snapshot) {
-          throw new Error('请先创建游戏。');
+          throw new Error(language === 'en' ? 'Create a game first.' : '请先创建游戏。');
         }
         await submitProposalAction(snapshot, proposal, buildOrchestratorDeps());
       });
     },
-    [buildOrchestratorDeps, runGameAction, snapshot],
+    [buildOrchestratorDeps, language, runGameAction, snapshot],
   );
 
   const onLoginSuccess = useCallback(() => {
     setNeedsLogin(false);
     bootstrappedRef.current = false;
-    void runGameAction('正在连接云端 Supabase...', loadOrCreateGame);
-  }, [loadOrCreateGame, runGameAction]);
+    void runGameAction(language === 'en' ? 'Connecting to cloud Supabase...' : '正在连接云端 Supabase...', loadOrCreateGame);
+  }, [language, loadOrCreateGame, runGameAction]);
+
+  /**
+   * 退出登录：调用 Supabase Auth signOut，剩余的清理由 onAuthStateChange 的 SIGNED_OUT 分支负责。
+   * 这里设 isBusy/statusMessage 让按钮在等待时给玩家可见的反馈。
+   */
+  const signOut = useCallback(() => {
+    void runGameAction(language === 'en' ? 'Signing out...' : '正在退出登录...', async () => {
+      const { error } = await getSupabaseClient().auth.signOut();
+      if (error) {
+        throw error;
+      }
+    });
+  }, [language, runGameAction]);
 
   return {
     snapshot,
@@ -377,6 +451,7 @@ export function useGameSession(): UseGameSessionResult {
       advance,
       submitProposal: submitProposalCallback,
       onLoginSuccess,
+      signOut,
     },
   };
 }

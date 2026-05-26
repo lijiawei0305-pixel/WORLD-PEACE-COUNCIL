@@ -18,6 +18,13 @@ import {
   type TurnEvent,
   type WorldMetric,
 } from '../data/worldPeaceCouncil';
+import {
+  localizeAlliances,
+  localizeEventTopic,
+  localizeMetric,
+  localizeRisk,
+  type Language,
+} from './i18n';
 
 /** 后端 RoundStage 枚举 → HUD StageStepper 高亮索引（0..4）。 */
 export const stageIndexByRoundStage: Record<RoundStage, number> = {
@@ -83,8 +90,8 @@ function getMetricValue(
  * @param worldState 后端世界状态；可缺省（首次连接时）
  * @returns 6 条 metric（紧张度 / 稳定度 / AI 风险 / 经济 / 人道 / 和平协议）
  */
-export function mapWorldStateToMetrics(worldState?: WorldState): WorldMetric[] {
-  return [
+export function mapWorldStateToMetrics(worldState?: WorldState, language: Language = 'zh'): WorldMetric[] {
+  const metrics: WorldMetric[] = [
     { id: 'tension', label: '全球紧张度', icon: '!', value: getMetricValue(worldState, 'globalTension', 'tension'), max: 100, tone: 'red' },
     { id: 'stability', label: '世界稳定度', icon: '+', value: getMetricValue(worldState, 'worldStability', 'stability'), max: 100, tone: 'green' },
     { id: 'aiRisk', label: 'AI 风险指数', icon: 'AI', value: getMetricValue(worldState, 'aiRisk', 'aiRisk'), max: 100, tone: 'yellow' },
@@ -92,6 +99,7 @@ export function mapWorldStateToMetrics(worldState?: WorldState): WorldMetric[] {
     { id: 'humanitarian', label: '人道危机', icon: 'H', value: getMetricValue(worldState, 'humanitarianCrisis', 'humanitarian'), max: 100, tone: 'orange' },
     { id: 'peaceAgreement', label: '和平协议', icon: 'P', value: worldState?.peaceAgreement ?? 20, max: 100, tone: 'blue' },
   ];
+  return metrics.map((metric) => localizeMetric(metric, language));
 }
 
 /**
@@ -145,12 +153,12 @@ function findBaseAlliance(state: AllianceState): AllianceProfile {
  * @param states 后端联盟状态数组；可空
  * @returns 长度恒为 7 的 AllianceProfile 数组
  */
-export function mapAllianceStatesToProfiles(states?: AllianceState[]): AllianceProfile[] {
+export function mapAllianceStatesToProfiles(states?: AllianceState[], language: Language = 'zh'): AllianceProfile[] {
   if (!states?.length) {
-    return councilAlliances;
+    return localizeAlliances(councilAlliances, language);
   }
 
-  return states.map((state) => {
+  return localizeAlliances(states.map((state) => {
     const base = findBaseAlliance(state);
     const stance = normalizeStance(state.stance, state.satisfaction);
 
@@ -162,7 +170,7 @@ export function mapAllianceStatesToProfiles(states?: AllianceState[]): AllianceP
       satisfaction: state.satisfaction,
       demand: state.currentDemand || base.demand,
     };
-  });
+  }), language);
 }
 
 /**
@@ -172,11 +180,11 @@ export function mapAllianceStatesToProfiles(states?: AllianceState[]): AllianceP
  * @param events 后端回合事件
  * @returns 精简 TurnEvent 数组；输入为空返回空数组
  */
-export function mapRoundEventsToTurnEvents(events?: RoundEvent[]): TurnEvent[] {
+export function mapRoundEventsToTurnEvents(events?: RoundEvent[], language: Language = 'zh'): TurnEvent[] {
   return events?.map((event) => ({
     id: event.id,
     title: event.title,
-    risk: eventSeverityRisk[event.severity],
-    topic: eventTypeLabel[event.type],
+    risk: localizeRisk(eventSeverityRisk[event.severity], language),
+    topic: localizeEventTopic(eventTypeLabel[event.type], language),
   })) ?? [];
 }

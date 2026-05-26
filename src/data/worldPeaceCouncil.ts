@@ -51,7 +51,7 @@ export type AllianceProfile = {
   shortName: string;
   emblem: string;
   iconUrl: string;
-  stance: '友好' | '支持' | '合作' | '中立' | '观望' | '警惕' | '强硬' | '敌对';
+  stance: string;
   stanceTone: 'friendly' | 'support' | 'neutral' | 'watch' | 'alert' | 'hardline' | 'hostile';
   satisfaction: number;
   demand: string;
@@ -199,7 +199,7 @@ export const headerStatus = {
   aiRisk: '37 / 100',
 };
 
-export type TurnEventRisk = '高危' | '中危' | '机会';
+export type TurnEventRisk = string;
 
 export type TurnEvent = {
   id: string;
